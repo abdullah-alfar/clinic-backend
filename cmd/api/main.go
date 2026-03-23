@@ -62,16 +62,14 @@ func main() {
 	mux.Handle("GET /api/v1/auth/me", myhttp.AuthMiddleware(http.HandlerFunc(authHandler.HandleMe)))
 
 	// Patients RBAC
-	patientBase := myhttp.AuthMiddleware(http.HandlerFunc(patientHandler.HandlePatients))
-	mux.Handle("GET /api/v1/patients", myhttp.RBACMiddleware("admin", "receptionist", "doctor")(patientBase))
-	mux.Handle("POST /api/v1/patients", myhttp.RBACMiddleware("admin", "receptionist")(patientBase))
+	mux.Handle("GET /api/v1/patients", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(patientHandler.HandlePatients))))
+	mux.Handle("POST /api/v1/patients", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(patientHandler.HandlePatients))))
 
 	// Doctors RBAC
-	doctorBase := myhttp.AuthMiddleware(http.HandlerFunc(doctorHandler.ServeHTTP))
-	mux.Handle("GET /api/v1/doctors", myhttp.RBACMiddleware("admin", "receptionist", "doctor")(doctorBase))
-	mux.Handle("POST /api/v1/doctors", myhttp.RBACMiddleware("admin")(doctorBase))
-	mux.Handle("PATCH /api/v1/doctors/{id}", myhttp.RBACMiddleware("admin")(doctorBase))
-	mux.Handle("DELETE /api/v1/doctors/{id}", myhttp.RBACMiddleware("admin")(doctorBase))
+	mux.Handle("GET /api/v1/doctors", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(doctorHandler.ServeHTTP))))
+	mux.Handle("POST /api/v1/doctors", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(doctorHandler.ServeHTTP))))
+	mux.Handle("PATCH /api/v1/doctors/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(doctorHandler.ServeHTTP))))
+	mux.Handle("DELETE /api/v1/doctors/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(doctorHandler.ServeHTTP))))
 
 	// Appointments RBAC (Create/Read)
 	mux.Handle("POST /api/v1/appointments", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(apptHandler.HandleSchedule))))

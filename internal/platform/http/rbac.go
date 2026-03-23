@@ -12,7 +12,7 @@ func RBACMiddleware(allowedRoles ...string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			userCtx, ok := shared.GetUserContext(r.Context())
 			if !ok {
-				RespondError(w, http.StatusUnauthorized, "unauthorized", "UNAUTHORIZED", nil)
+				RespondError(w, http.StatusForbidden, "forbidden: missing user context", "FORBIDDEN", nil)
 				return
 			}
 

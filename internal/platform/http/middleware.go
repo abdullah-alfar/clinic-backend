@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"strings"
 
@@ -20,6 +21,8 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 		claims, err := jwt.ValidateToken(tokenStr)
 		if err != nil {
+			// Add debug logging to identify root cause of auth failures
+			log.Printf("Auth failure: %v", err)
 			RespondError(w, http.StatusUnauthorized, "invalid or expired token", "INVALID_TOKEN", err.Error())
 			return
 		}
