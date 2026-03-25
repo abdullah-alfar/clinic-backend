@@ -9,8 +9,9 @@ import (
 )
 
 type Slot struct {
-	StartTime time.Time `json:"start_time"`
-	EndTime   time.Time `json:"end_time"`
+	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time"`
+	IsAvailable bool      `json:"is_available"`
 }
 
 type DoctorAvailabilityResponse struct {
@@ -46,9 +47,10 @@ func (s *AvailabilityService) GetAvailableSlots(tenantID uuid.UUID, doctorID *uu
 	slotDuration := 30 * time.Minute
 	slotsByDoctor := make(map[uuid.UUID][]Slot)
 	
-	// Normalize date range
-	d := time.Date(dateFrom.Year(), dateFrom.Month(), dateFrom.Day(), 0, 0, 0, 0, dateFrom.Location())
-	endD := time.Date(dateTo.Year(), dateTo.Month(), dateTo.Day(), 23, 59, 59, 0, dateTo.Location())
+	// Normalize the date range to UTC midnight boundaries
+	d := time.Date(dateFrom.Year(), dateFrom.Month(), dateFrom.Day(), 0, 0, 0, 0, time.UTC)
+	endD := time.Date(dateTo.Year(), dateTo.Month(), dateTo.Day(), 23, 59, 59, 0, time.UTC)
+	nowUTC := time.Now().UTC()
 
 	for ; d.Before(endD); d = d.AddDate(0, 0, 1) {
 		dayOfWeek := int(d.Weekday())
@@ -64,23 +66,29 @@ func (s *AvailabilityService) GetAvailableSlots(tenantID uuid.UUID, doctorID *uu
 			et, err := time.Parse("15:04:05", avail.EndTime)
 			if err != nil { continue }
 
-			dayStart := time.Date(d.Year(), d.Month(), d.Day(), st.Hour(), st.Minute(), st.Second(), 0, d.Location())
-			dayEnd := time.Date(d.Year(), d.Month(), d.Day(), et.Hour(), et.Minute(), et.Second(), 0, d.Location())
+			dayStart := time.Date(d.Year(), d.Month(), d.Day(), st.Hour(), st.Minute(), st.Second(), 0, time.UTC)
+			dayEnd   := time.Date(d.Year(), d.Month(), d.Day(), et.Hour(), et.Minute(), et.Second(), 0, time.UTC)
 
 			for cur := dayStart; cur.Before(dayEnd); cur = cur.Add(slotDuration) {
 				curEnd := cur.Add(slotDuration)
 				
 				overlap := false
 				for _, appt := range apptsByDoctor[avail.DoctorID] {
-					if cur.Before(appt.EndTime) && curEnd.After(appt.StartTime) {
+					// Normalise to UTC to match booking validation
+					apptStart := appt.StartTime.UTC()
+					apptEnd   := appt.EndTime.UTC()
+					if cur.Before(apptEnd) && curEnd.After(apptStart) {
 						overlap = true
 						break
 					}
 				}
 				
-				if !overlap && cur.After(time.Now()) {
-					slotsByDoctor[avail.DoctorID] = append(slotsByDoctor[avail.DoctorID], Slot{StartTime: cur, EndTime: curEnd})
-				}
+				isAvail := !overlap && cur.After(nowUTC)
+				slotsByDoctor[avail.DoctorID] = append(slotsByDoctor[avail.DoctorID], Slot{
+					StartTime:   cur,
+					EndTime:     curEnd,
+					IsAvailable: isAvail,
+				})
 			}
 		}
 	}
@@ -112,9 +120,12 @@ func (s *AvailabilityService) NextAvailableSlot(tenantID uuid.UUID, doctorID *uu
 	
 	var earliest *Slot
 	for _, docSlots := range slotsResp {
-		if len(docSlots.Slots) > 0 {
-			if earliest == nil || docSlots.Slots[0].StartTime.Before(earliest.StartTime) {
-				earliest = &docSlots.Slots[0]
+		for _, slot := range docSlots.Slots {
+			if slot.IsAvailable {
+				if earliest == nil || slot.StartTime.Before(earliest.StartTime) {
+					earliestCopy := slot
+					earliest = &earliestCopy
+				}
 			}
 		}
 	}
