@@ -2,6 +2,7 @@ package patient
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	myhttp "clinic-backend/internal/platform/http"
@@ -38,7 +39,7 @@ func (h *PatientHandler) HandlePatients(w http.ResponseWriter, r *http.Request) 
 			myhttp.RespondError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST", err.Error())
 			return
 		}
-		
+
 		p.TenantID = userCtx.TenantID // Enforce tenant isolation
 
 		if err := h.svc.CreatePatient(&p, userCtx.UserID); err != nil {
@@ -50,4 +51,27 @@ func (h *PatientHandler) HandlePatients(w http.ResponseWriter, r *http.Request) 
 	default:
 		myhttp.RespondError(w, http.StatusMethodNotAllowed, "method not allowed", "INVALID_METHOD", nil)
 	}
+}
+
+func (h *PatientHandler) HandlePatientByID(w http.ResponseWriter, r *http.Request) {
+	userCtx, ok := shared.GetUserContext(r.Context())
+	if !ok {
+		myhttp.RespondError(w, http.StatusUnauthorized, "unauthorized", "UNAUTHORIZED", nil)
+		return
+	}
+
+	id := r.PathValue("id")
+
+	patient, err := h.svc.GetPatientByID(id, userCtx.TenantID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrPatientNotFound):
+			myhttp.RespondError(w, http.StatusNotFound, "patient not found", "NOT_FOUND", nil)
+		default:
+			myhttp.RespondError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR", nil)
+		}
+		return
+	}
+
+	myhttp.RespondJSON(w, http.StatusOK, patient, "success")
 }

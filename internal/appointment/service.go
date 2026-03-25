@@ -1,12 +1,12 @@
 package appointment
 
 import (
-	"database/sql"
 	"errors"
 	"time"
 
 	"clinic-backend/internal/audit"
 	"clinic-backend/internal/queue"
+
 	"github.com/google/uuid"
 )
 
@@ -32,27 +32,22 @@ type Appointment struct {
 }
 
 type AppointmentService struct {
-	db    *sql.DB
+	repo  AppointmentRepository
 	audit *audit.AuditService
 	queue *queue.QueueClient
 }
 
-func NewAppointmentService(db *sql.DB, audit *audit.AuditService, q *queue.QueueClient) *AppointmentService {
-	return &AppointmentService{db: db, audit: audit, queue: q}
+func NewAppointmentService(repo AppointmentRepository, audit *audit.AuditService, q *queue.QueueClient) *AppointmentService {
+	return &AppointmentService{repo: repo, audit: audit, queue: q}
 }
 
 // CheckDoctorAvailability verifies working hours against doctor_availability table
 func (s *AppointmentService) CheckDoctorAvailability(tenantID, doctorID uuid.UUID, start, end time.Time) error {
-	var count int
 	dayOfWeek := int(start.Weekday())
 	startTimeStr := start.Format("15:04:05")
 	endTimeStr := end.Format("15:04:05")
 
-	err := s.db.QueryRow(`
-		SELECT count(1) FROM doctor_availability
-		WHERE tenant_id = $1 AND doctor_id = $2 AND day_of_week = $3 AND is_active = true
-		AND start_time <= $4 AND end_time >= $5
-	`, tenantID, doctorID, dayOfWeek, startTimeStr, endTimeStr).Scan(&count)
+	count, err := s.repo.CheckDoctorAvailabilityCount(tenantID, doctorID, dayOfWeek, startTimeStr, endTimeStr)
 
 	if err != nil || count == 0 {
 		return ErrDoctorInactive
@@ -61,21 +56,7 @@ func (s *AppointmentService) CheckDoctorAvailability(tenantID, doctorID uuid.UUI
 }
 
 func (s *AppointmentService) CheckConflict(tenantID, doctorID uuid.UUID, start, end time.Time, excludeID *uuid.UUID) bool {
-	query := `
-		SELECT count(1) FROM appointments 
-		WHERE tenant_id = $1 AND doctor_id = $2 
-		AND status != 'canceled'
-		AND (start_time < $3 AND end_time > $4)
-	`
-	args := []interface{}{tenantID, doctorID, end, start}
-
-	if excludeID != nil {
-		query += " AND id != $5"
-		args = append(args, *excludeID)
-	}
-
-	var count int
-	s.db.QueryRow(query, args...).Scan(&count)
+	count, _ := s.repo.CheckConflictCount(tenantID, doctorID, start, end, excludeID)
 	return count > 0
 }
 
@@ -106,12 +87,7 @@ func (s *AppointmentService) ScheduleAppointment(tenantID, patientID, doctorID u
 		CreatedBy: &createdBy,
 	}
 
-	_, err := s.db.Exec(`
-		INSERT INTO appointments (id, tenant_id, patient_id, doctor_id, status, start_time, end_time, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, appt.ID, appt.TenantID, appt.PatientID, appt.DoctorID, appt.Status, appt.StartTime, appt.EndTime, appt.CreatedBy)
-
-	if err != nil {
+	if err := s.repo.CreateAppointment(appt); err != nil {
 		return nil, err
 	}
 
@@ -150,9 +126,7 @@ func (s *AppointmentService) UpdateAppointmentTime(tenantID, apptID uuid.UUID, s
 	}
 
 	// Fetch current appt
-	var doctorID uuid.UUID
-	var status string
-	err := s.db.QueryRow(`SELECT doctor_id, status FROM appointments WHERE id = $1 AND tenant_id = $2`, apptID, tenantID).Scan(&doctorID, &status)
+	doctorID, status, err := s.repo.GetAppointmentDoctorAndStatus(tenantID, apptID)
 	if err != nil {
 		return err
 	}
@@ -169,7 +143,7 @@ func (s *AppointmentService) UpdateAppointmentTime(tenantID, apptID uuid.UUID, s
 		return ErrDoubleBooking
 	}
 
-	_, err = s.db.Exec(`UPDATE appointments SET start_time = $1, end_time = $2, updated_at = NOW() WHERE id = $3 AND tenant_id = $4`, start, end, apptID, tenantID)
+	err = s.repo.UpdateAppointmentTime(tenantID, apptID, start, end)
 	if err == nil {
 		s.audit.LogAction(tenantID, actorID, "UPDATE_APPOINTMENT_TIME", "appointment", apptID, map[string]any{"start": start, "end": end})
 		
@@ -187,8 +161,7 @@ func (s *AppointmentService) UpdateAppointmentTime(tenantID, apptID uuid.UUID, s
 }
 
 func (s *AppointmentService) UpdateStatus(tenantID, apptID uuid.UUID, newStatus string, actorID uuid.UUID) error {
-	var currentStatus string
-	err := s.db.QueryRow(`SELECT status FROM appointments WHERE id = $1 AND tenant_id = $2`, apptID, tenantID).Scan(&currentStatus)
+	_, currentStatus, err := s.repo.GetAppointmentDoctorAndStatus(tenantID, apptID)
 	if err != nil {
 		return err
 	}
@@ -206,7 +179,7 @@ func (s *AppointmentService) UpdateStatus(tenantID, apptID uuid.UUID, newStatus 
 		return ErrInvalidStatus
 	}
 
-	_, err = s.db.Exec(`UPDATE appointments SET status = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3`, newStatus, apptID, tenantID)
+	err = s.repo.UpdateAppointmentStatus(tenantID, apptID, newStatus)
 	if err == nil {
 		s.audit.LogAction(tenantID, actorID, "UPDATE_APPOINTMENT_STATUS", "appointment", apptID, map[string]string{"old_status": currentStatus, "new_status": newStatus})
 		

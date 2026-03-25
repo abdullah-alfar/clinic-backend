@@ -5,8 +5,11 @@ import (
 	"time"
 
 	"clinic-backend/internal/audit"
+	"errors"
 	"github.com/google/uuid"
 )
+
+var ErrPatientNotFound = errors.New("patient not found")
 
 type Patient struct {
 	ID          uuid.UUID  `json:"id"`
@@ -65,4 +68,36 @@ func (s *PatientService) ListPatients(tenantID uuid.UUID) ([]*Patient, error) {
 		patients = append(patients, &p)
 	}
 	return patients, nil
+}
+
+func (s *PatientService) GetPatientByID(id string, tenantID uuid.UUID) (*Patient, error) {
+	patientID, err := uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+
+	var p Patient
+	err = s.db.QueryRow(`
+		SELECT id, first_name, last_name, phone, email, date_of_birth, gender, notes, created_at
+		FROM patients
+		WHERE id = $1 AND tenant_id = $2
+	`, patientID, tenantID).Scan(
+		&p.ID,
+		&p.FirstName,
+		&p.LastName,
+		&p.Phone,
+		&p.Email,
+		&p.DateOfBirth,
+		&p.Gender,
+		&p.Notes,
+		&p.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrPatientNotFound
+		}
+		return nil, err
+	}
+
+	return &p, nil
 }

@@ -13,11 +13,12 @@ import (
 )
 
 type AppointmentHandler struct {
-	svc *AppointmentService
+	svc      *AppointmentService
+	availSvc *AvailabilityService
 }
 
-func NewAppointmentHandler(svc *AppointmentService) *AppointmentHandler {
-	return &AppointmentHandler{svc: svc}
+func NewAppointmentHandler(svc *AppointmentService, availSvc *AvailabilityService) *AppointmentHandler {
+	return &AppointmentHandler{svc: svc, availSvc: availSvc}
 }
 
 type ScheduleRequest struct {
@@ -75,8 +76,6 @@ func (h *AppointmentHandler) HandleUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Extract ID from path e.g. /api/v1/appointments/{id}
-	// For simplicity, assuming exact matching or using a router
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 5 {
 		myhttp.RespondError(w, http.StatusBadRequest, "invalid url", "BAD_REQUEST", nil)
@@ -116,7 +115,6 @@ func (h *AppointmentHandler) HandleStatus(status string) http.HandlerFunc {
 			return
 		}
 
-		// URL: /api/v1/appointments/{id}/statusName
 		pathParts := strings.Split(r.URL.Path, "/")
 		if len(pathParts) < 6 {
 			myhttp.RespondError(w, http.StatusBadRequest, "invalid url", "BAD_REQUEST", nil)
@@ -135,4 +133,101 @@ func (h *AppointmentHandler) HandleStatus(status string) http.HandlerFunc {
 		}
 		myhttp.RespondJSON(w, http.StatusOK, nil, "appointment status updated to "+status)
 	}
+}
+
+func (h *AppointmentHandler) HandleGetAvailability(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		myhttp.RespondError(w, http.StatusMethodNotAllowed, "method not allowed", "INVALID_METHOD", nil)
+		return
+	}
+
+	userCtx, ok := shared.GetUserContext(r.Context())
+	if !ok {
+		myhttp.RespondError(w, http.StatusUnauthorized, "unauthorized", "UNAUTHORIZED", nil)
+		return
+	}
+
+	dateFromStr := r.URL.Query().Get("date_from")
+	dateToStr := r.URL.Query().Get("date_to")
+	
+	// If date_from and date_to are missing, default to today if date is provided
+	if dateFromStr == "" && dateToStr == "" {
+		dateStr := r.URL.Query().Get("date")
+		if dateStr != "" {
+			dateFromStr = dateStr
+			dateToStr = dateStr
+		} else {
+			myhttp.RespondError(w, http.StatusBadRequest, "date_from and date_to (or date) are required", "BAD_REQUEST", nil)
+			return
+		}
+	}
+
+	dateFrom, err := time.Parse("2006-01-02", dateFromStr)
+	if err != nil {
+		myhttp.RespondError(w, http.StatusBadRequest, "invalid date_from format", "BAD_REQUEST", nil)
+		return
+	}
+
+	dateTo, err := time.Parse("2006-01-02", dateToStr)
+	if err != nil {
+		myhttp.RespondError(w, http.StatusBadRequest, "invalid date_to format", "BAD_REQUEST", nil)
+		return
+	}
+
+	var docIDPtr *uuid.UUID
+	if docIDStr := r.URL.Query().Get("doctor_id"); docIDStr != "" {
+		id, err := uuid.Parse(docIDStr)
+		if err == nil {
+			docIDPtr = &id
+		}
+	}
+
+	slots, err := h.availSvc.GetAvailableSlots(userCtx.TenantID, docIDPtr, dateFrom, dateTo)
+	if err != nil {
+		myhttp.RespondError(w, http.StatusInternalServerError, "failed to get availability", "INTERNAL_ERROR", nil)
+		return
+	}
+
+	// Wrapper to match frontend expected structure
+	type responseWrapper struct {
+		Data    []DoctorAvailabilityResponse `json:"data"`
+		Message string                       `json:"message"`
+		Error   *string                      `json:"error"`
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(responseWrapper{
+		Data:    slots,
+		Message: "success",
+		Error:   nil,
+	})
+}
+
+func (h *AppointmentHandler) HandleGetNextAvailable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		myhttp.RespondError(w, http.StatusMethodNotAllowed, "method not allowed", "INVALID_METHOD", nil)
+		return
+	}
+
+	userCtx, ok := shared.GetUserContext(r.Context())
+	if !ok {
+		myhttp.RespondError(w, http.StatusUnauthorized, "unauthorized", "UNAUTHORIZED", nil)
+		return
+	}
+
+	var docIDPtr *uuid.UUID
+	if docIDStr := r.URL.Query().Get("doctor_id"); docIDStr != "" {
+		id, err := uuid.Parse(docIDStr)
+		if err == nil {
+			docIDPtr = &id
+		}
+	}
+
+	slot, err := h.availSvc.NextAvailableSlot(userCtx.TenantID, docIDPtr)
+	if err != nil {
+		myhttp.RespondError(w, http.StatusNotFound, "no slots available", "NOT_FOUND", nil)
+		return
+	}
+
+	myhttp.RespondJSON(w, http.StatusOK, slot, "success")
 }
