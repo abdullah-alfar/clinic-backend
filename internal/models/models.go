@@ -52,3 +52,15 @@ type Appointment struct {
 	Status    AppointmentStatus `json:"status"`
 	CreatedAt time.Time         `json:"created_at"`
 }
+
+type Visit struct {
+	ID            uuid.UUID `json:"id"`
+	TenantID      uuid.UUID `json:"tenant_id"`
+	PatientID     uuid.UUID `json:"patient_id"`
+	AppointmentID uuid.UUID `json:"appointment_id"`
+	DoctorID      uuid.UUID `json:"doctor_id"`
+	Notes         string    `json:"notes"`
+	Diagnosis     string    `json:"diagnosis"`
+	Prescription  string    `json:"prescription"`
+	CreatedAt     time.Time `json:"created_at"`
+}

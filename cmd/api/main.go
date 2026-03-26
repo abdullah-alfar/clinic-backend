@@ -17,6 +17,7 @@ import (
 	"clinic-backend/internal/report"
 	"clinic-backend/internal/tenant"
 	"clinic-backend/internal/upload"
+	"clinic-backend/internal/visit"
 )
 
 func main() {
@@ -42,6 +43,7 @@ func main() {
 	doctorSvc := doctor.NewDoctorService(database, auditSvc)
 	notifSvc := notification.NewNotificationService(database)
 	reportSvc := report.NewReportService(database)
+	visitSvc := visit.NewVisitService(database, auditSvc)
 
 	// Handlers
 	authHandler := auth.NewAuthHandler(authSvc)
@@ -52,6 +54,7 @@ func main() {
 	uploadHandler := upload.NewUploadHandler(database, auditSvc)
 	notifHandler := notification.NewNotificationHandler(notifSvc)
 	reportHandler := report.NewReportHandler(reportSvc)
+	visitHandler := visit.NewVisitHandler(visitSvc)
 
 	mux := http.NewServeMux()
 
@@ -68,6 +71,10 @@ func main() {
 	mux.Handle("POST /api/v1/patients", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(patientHandler.HandlePatients))))
 	mux.Handle("GET /api/v1/patients/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(patientHandler.HandlePatientByID))))
 
+	// Visits & Timeline
+	mux.Handle("POST /api/v1/visits", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(visitHandler.HandleVisits))))
+	mux.Handle("GET /api/v1/patients/{id}/timeline", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(visitHandler.HandlePatientTimeline))))
+
 	// Doctors RBAC
 	mux.Handle("GET /api/v1/doctors", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(doctorHandler.ServeHTTP))))
 	mux.Handle("POST /api/v1/doctors", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(doctorHandler.ServeHTTP))))
@@ -83,6 +90,7 @@ func main() {
 
 	// Appointments RBAC (Update / Cancel)
 	mux.Handle("PATCH /api/v1/appointments/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(apptHandler.HandleUpdate))))
+	mux.Handle("PATCH /api/v1/appointments/{id}/reschedule", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(apptHandler.HandleUpdate))))
 	mux.Handle("PATCH /api/v1/appointments/{id}/cancel", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(apptHandler.HandleStatus("canceled"))))
 
 	// Appointments RBAC (Confirm / Complete)

@@ -1,0 +1,108 @@
+
+🥉 3. Doctor Availability UI
+الفكرة
+
+بدونها النظام ناقص
+
+prompt
+
+
+Build Doctor Availability Management UI.
+
+Backend:
+- CRUD for doctor availability:
+  - day_of_week
+  - start_time
+  - end_time
+
+Endpoints:
+- GET /doctors/{id}/availability
+- POST /doctors/{id}/availability
+- DELETE /availability/{id}
+
+Frontend:
+- Page:
+  /doctors/[id]/availability
+- UI:
+  - weekly schedule
+  - add/edit time slots
+
+UX:
+- simple grid:
+  Sunday → Saturday
+- allow multiple slots per day
+
+Rules:
+- no overlap
+- validate times
+
+Return:
+- files
+
+
+
+
+💰 4. Billing / Invoices
+الفكرة
+
+هاي اللي بتخليك تبيع 💸
+
+prompt
+
+
+Implement basic billing system.
+
+Backend:
+- Create Invoice:
+  - id
+  - patient_id
+  - appointment_id
+  - amount
+  - status (pending, paid)
+  - created_at
+
+Endpoints:
+- POST /invoices
+- GET /patients/{id}/invoices
+- PATCH /invoices/{id}/pay
+
+Frontend:
+- In patient page:
+  - invoices section
+- Show:
+  - amount
+  - status
+- Add "Mark as Paid"
+
+Rules:
+- invoice created on appointment
+
+Return:
+- files
+
+
+🧠 5. No-show Tracking
+الفكرة
+
+feature صغيرة بس قوية جدًا
+
+prompt
+
+Implement no-show tracking.
+
+Backend:
+- Add status:
+  - no_show
+- Endpoint:
+  PATCH /appointments/{id}/no-show
+
+Frontend:
+- Button:
+  "Mark as No-show"
+- Show badge
+
+Dashboard:
+- show no-show count
+
+Return:
+- files
