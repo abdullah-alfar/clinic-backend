@@ -43,9 +43,15 @@ func NewAppointmentService(repo AppointmentRepository, audit *audit.AuditService
 
 // CheckDoctorAvailability verifies working hours against doctor_availability table
 func (s *AppointmentService) CheckDoctorAvailability(tenantID, doctorID uuid.UUID, start, end time.Time) error {
-	dayOfWeek := int(start.Weekday())
-	startTimeStr := start.Format("15:04:05")
-	endTimeStr := end.Format("15:04:05")
+	tz, _ := s.repo.GetTenantTimezone(tenantID)
+	loc, _ := time.LoadLocation(tz)
+	if loc == nil { loc = time.UTC }
+
+	startInLoc := start.In(loc)
+	dayOfWeek := int(startInLoc.Weekday())
+	startTimeStr := startInLoc.Format("15:04:05")
+	endTimeStr := end.In(loc).Format("15:04:05")
+
 
 	count, err := s.repo.CheckDoctorAvailabilityCount(tenantID, doctorID, dayOfWeek, startTimeStr, endTimeStr)
 
@@ -64,9 +70,14 @@ func (s *AppointmentService) ScheduleAppointment(tenantID, patientID, doctorID u
 	if start.After(end) || start.Equal(end) {
 		return nil, ErrInvalidTime
 	}
-	if start.Before(time.Now()) {
+	tz, _ := s.repo.GetTenantTimezone(tenantID)
+	loc, _ := time.LoadLocation(tz)
+	if loc == nil { loc = time.UTC }
+
+	if start.Before(time.Now().In(loc)) {
 		return nil, ErrPastAppointment
 	}
+
 
 	if err := s.CheckDoctorAvailability(tenantID, doctorID, start, end); err != nil {
 		return nil, err

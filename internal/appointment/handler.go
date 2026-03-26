@@ -182,7 +182,8 @@ func (h *AppointmentHandler) HandleGetAvailability(w http.ResponseWriter, r *htt
 		}
 	}
 
-	slots, err := h.availSvc.GetAvailableSlots(userCtx.TenantID, docIDPtr, dateFrom, dateTo)
+	tz, _ := h.svc.repo.GetTenantTimezone(userCtx.TenantID)
+	slots, err := h.availSvc.GetAvailableSlots(userCtx.TenantID, docIDPtr, dateFrom, dateTo, tz)
 	if err != nil {
 		myhttp.RespondError(w, http.StatusInternalServerError, "failed to get availability", "INTERNAL_ERROR", nil)
 		return
@@ -190,16 +191,18 @@ func (h *AppointmentHandler) HandleGetAvailability(w http.ResponseWriter, r *htt
 
 	// Wrapper to match frontend expected structure
 	type responseWrapper struct {
-		Data    []DoctorAvailabilityResponse `json:"data"`
-		Message string                       `json:"message"`
-		Error   *string                      `json:"error"`
+		Data     []DoctorAvailabilityResponse `json:"data"`
+		Timezone string                       `json:"timezone"`
+		Message  string                       `json:"message"`
+		Error    *string                      `json:"error"`
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(responseWrapper{
-		Data:    slots,
-		Message: "success",
-		Error:   nil,
+		Data:     slots,
+		Timezone: tz,
+		Message:  "success",
+		Error:    nil,
 	})
 }
 

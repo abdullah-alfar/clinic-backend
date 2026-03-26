@@ -27,6 +27,7 @@ type AppointmentRepository interface {
 	UpdateAppointmentStatus(tenantID, apptID uuid.UUID, status string) error
 	GetDoctorAvailabilities(tenantID uuid.UUID, doctorIDs []uuid.UUID, dayOfWeek int) ([]DoctorAvailability, error)
 	GetAppointmentsInRange(tenantID uuid.UUID, doctorIDs []uuid.UUID, start, end time.Time) ([]Appointment, error)
+	GetTenantTimezone(tenantID uuid.UUID) (string, error)
 }
 
 type postgresAppointmentRepository struct {
@@ -151,4 +152,12 @@ func (r *postgresAppointmentRepository) GetAppointmentsInRange(tenantID uuid.UUI
 		results = append(results, a)
 	}
 	return results, nil
+}
+func (r *postgresAppointmentRepository) GetTenantTimezone(tenantID uuid.UUID) (string, error) {
+	var tz string
+	err := r.db.QueryRow(`SELECT timezone FROM tenants WHERE id = $1`, tenantID).Scan(&tz)
+	if err != nil {
+		return "UTC", nil // Fallback to UTC if not found or err
+	}
+	return tz, nil
 }

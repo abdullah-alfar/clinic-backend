@@ -10,6 +10,7 @@ type Tenant struct {
 	ID          uuid.UUID      `json:"id"`
 	Name        string         `json:"name"`
 	Subdomain   string         `json:"subdomain"`
+	Timezone    string         `json:"timezone"`
 	ThemeConfig map[string]any `json:"theme_config"`
 	CreatedAt   time.Time      `json:"created_at"`
 }
