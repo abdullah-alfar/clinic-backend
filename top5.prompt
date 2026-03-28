@@ -42,45 +42,6 @@ Return:
 
 
 
-💰 4. Billing / Invoices
-الفكرة
-
-هاي اللي بتخليك تبيع 💸
-
-prompt
-
-
-Implement basic billing system.
-
-Backend:
-- Create Invoice:
-  - id
-  - patient_id
-  - appointment_id
-  - amount
-  - status (pending, paid)
-  - created_at
-
-Endpoints:
-- POST /invoices
-- GET /patients/{id}/invoices
-- PATCH /invoices/{id}/pay
-
-Frontend:
-- In patient page:
-  - invoices section
-- Show:
-  - amount
-  - status
-- Add "Mark as Paid"
-
-Rules:
-- invoice created on appointment
-
-Return:
-- files
-
-
 🧠 5. No-show Tracking
 الفكرة
 

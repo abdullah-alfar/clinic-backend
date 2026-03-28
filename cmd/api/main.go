@@ -18,10 +18,13 @@ import (
 	"clinic-backend/internal/tenant"
 	"clinic-backend/internal/upload"
 	"clinic-backend/internal/visit"
+	"clinic-backend/internal/invoice"
+	"clinic-backend/internal/attachment"
+	"clinic-backend/internal/reportai"
 )
 
 func main() {
-	database, err := db.NewPostgresDB("localhost", "5432", "postgres", "root", "clinic")
+	database, err := db.NewPostgresDB("localhost", "5432", "postgres", "postgres", "clinic")
 	if err != nil {
 		log.Printf("Warning: Failed to connect to DB: %v", err)
 	}
@@ -45,6 +48,17 @@ func main() {
 	reportSvc := report.NewReportService(database)
 	visitSvc := visit.NewVisitService(database, auditSvc)
 
+	invRepo := invoice.NewPostgresInvoiceRepository(database)
+	invSvc := invoice.NewInvoiceService(invRepo, database)
+
+	attRepo := attachment.NewPostgresRepository(database)
+	attStorage := attachment.NewLocalFileStorage("./uploads")
+	attSvc := attachment.NewAttachmentService(attRepo, attStorage, auditSvc)
+
+	aiRepo := reportai.NewPostgresRepository(database)
+	aiProvider := reportai.NewMockAIProvider()
+	aiSvc := reportai.NewReportAIService(aiRepo, aiProvider, auditSvc)
+
 	// Handlers
 	authHandler := auth.NewAuthHandler(authSvc)
 	tenantHandler := tenant.NewTenantHandler(tenantSvc)
@@ -55,6 +69,10 @@ func main() {
 	notifHandler := notification.NewNotificationHandler(notifSvc)
 	reportHandler := report.NewReportHandler(reportSvc)
 	visitHandler := visit.NewVisitHandler(visitSvc)
+	invHandler := invoice.NewInvoiceHandler(invSvc)
+
+	attHandler := attachment.NewAttachmentHandler(attSvc)
+	aiHandler := reportai.NewReportAIHandler(aiSvc, attRepo)
 
 	mux := http.NewServeMux()
 
@@ -105,10 +123,25 @@ func main() {
 	mux.Handle("GET /api/v1/notifications", myhttp.AuthMiddleware(http.HandlerFunc(notifHandler.HandleList)))
 	mux.Handle("PATCH /api/v1/notifications/{id}/read", myhttp.AuthMiddleware(http.HandlerFunc(notifHandler.HandleRead)))
 
+	// Attachments
+	mux.Handle("POST /api/v1/patients/{id}/attachments", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(attHandler.HandleUploadAttachment))))
+	mux.Handle("GET /api/v1/patients/{id}/attachments", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(attHandler.HandleListAttachments))))
+	mux.Handle("GET /api/v1/attachments/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(attHandler.HandleGetAttachment))))
+	mux.Handle("DELETE /api/v1/attachments/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(attHandler.HandleDeleteAttachment))))
+
+	// Report AI
+	mux.Handle("POST /api/v1/attachments/{id}/analyze", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(aiHandler.HandleAnalyzeReport))))
+	mux.Handle("GET /api/v1/attachments/{id}/analyses", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(aiHandler.HandleGetAnalyses))))
+
 	// Reporting & Dashboards
 	mux.Handle("GET /api/v1/dashboard/summary", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(reportHandler.HandleDashboard))))
 	mux.Handle("GET /api/v1/reports/appointments", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(reportHandler.HandleAppointmentsReport))))
 	mux.Handle("GET /api/v1/reports/patients", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(reportHandler.HandlePatientsReport))))
+
+	// Invoices
+	mux.Handle("POST /api/v1/invoices", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(invHandler.HandleCreate))))
+	mux.Handle("GET /api/v1/patients/{id}/invoices", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(invHandler.HandleListPatientInvoices))))
+	mux.Handle("PATCH /api/v1/invoices/{id}/pay", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(invHandler.HandleMarkPaid))))
 
 	// CORS wrapper
 	corsMiddleware := func(next http.Handler) http.Handler {
