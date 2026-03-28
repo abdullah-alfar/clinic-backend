@@ -8,6 +8,7 @@ import (
 	"github.com/lib/pq"
 )
 
+// DoctorAvailability holds a doctor's configured working window for a given day.
 type DoctorAvailability struct {
 	ID        uuid.UUID
 	TenantID  uuid.UUID
@@ -18,6 +19,24 @@ type DoctorAvailability struct {
 	IsActive  bool
 }
 
+// CalendarAppointment is the domain model returned by the calendar query.
+// It carries joined patient and doctor names so the service layer does not
+// need to perform additional lookups.
+type CalendarAppointment struct {
+	ID          uuid.UUID
+	TenantID    uuid.UUID
+	PatientID   uuid.UUID
+	PatientName string
+	DoctorID    uuid.UUID
+	DoctorName  string
+	Status      string
+	StartTime   time.Time
+	EndTime     time.Time
+	Reason      *string
+}
+
+// AppointmentRepository defines the data access contract for the appointment module.
+// All implementations must satisfy this interface; no business logic lives here.
 type AppointmentRepository interface {
 	CheckDoctorAvailabilityCount(tenantID, doctorID uuid.UUID, dayOfWeek int, startTimeStr, endTimeStr string) (int, error)
 	CheckConflictCount(tenantID, doctorID uuid.UUID, start, end time.Time, excludeID *uuid.UUID) (int, error)
@@ -27,6 +46,7 @@ type AppointmentRepository interface {
 	UpdateAppointmentStatus(tenantID, apptID uuid.UUID, status string) error
 	GetDoctorAvailabilities(tenantID uuid.UUID, doctorIDs []uuid.UUID, dayOfWeek int) ([]DoctorAvailability, error)
 	GetAppointmentsInRange(tenantID uuid.UUID, doctorIDs []uuid.UUID, start, end time.Time) ([]Appointment, error)
+	GetCalendarAppointments(tenantID uuid.UUID, doctorIDs []uuid.UUID, start, end time.Time) ([]CalendarAppointment, error)
 	GetTenantTimezone(tenantID uuid.UUID) (string, error)
 }
 
@@ -153,11 +173,86 @@ func (r *postgresAppointmentRepository) GetAppointmentsInRange(tenantID uuid.UUI
 	}
 	return results, nil
 }
+
+// GetCalendarAppointments returns enriched appointments (with patient and doctor names)
+// for the given tenant, optional doctor filter, and time range. Uses a single JOIN query
+// to avoid N+1 lookups in the service layer.
+func (r *postgresAppointmentRepository) GetCalendarAppointments(tenantID uuid.UUID, doctorIDs []uuid.UUID, start, end time.Time) ([]CalendarAppointment, error) {
+	query := `
+		SELECT
+			a.id,
+			a.tenant_id,
+			a.patient_id,
+			COALESCE(p.first_name || ' ' || p.last_name, 'Unknown Patient') AS patient_name,
+			a.doctor_id,
+			COALESCE(d.full_name, 'Unknown Doctor') AS doctor_name,
+			a.status,
+			a.start_time,
+			a.end_time,
+			a.reason
+		FROM appointments a
+		LEFT JOIN patients p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
+		LEFT JOIN doctors d ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id
+		WHERE a.tenant_id = $1
+		AND a.start_time < $2
+		AND a.end_time > $3
+		ORDER BY a.start_time ASC
+	`
+	args := []interface{}{tenantID, end, start}
+
+	if len(doctorIDs) > 0 {
+		query = `
+			SELECT
+				a.id,
+				a.tenant_id,
+				a.patient_id,
+				COALESCE(p.first_name || ' ' || p.last_name, 'Unknown Patient') AS patient_name,
+				a.doctor_id,
+				COALESCE(d.full_name, 'Unknown Doctor') AS doctor_name,
+				a.status,
+				a.start_time,
+				a.end_time,
+				a.reason
+			FROM appointments a
+			LEFT JOIN patients p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
+			LEFT JOIN doctors d ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id
+			WHERE a.tenant_id = $1
+			AND a.start_time < $2
+			AND a.end_time > $3
+			AND a.doctor_id = ANY($4)
+			ORDER BY a.start_time ASC
+		`
+		args = append(args, pq.Array(doctorIDs))
+	}
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []CalendarAppointment
+	for rows.Next() {
+		var a CalendarAppointment
+		if err := rows.Scan(
+			&a.ID, &a.TenantID,
+			&a.PatientID, &a.PatientName,
+			&a.DoctorID, &a.DoctorName,
+			&a.Status, &a.StartTime, &a.EndTime,
+			&a.Reason,
+		); err != nil {
+			return nil, err
+		}
+		results = append(results, a)
+	}
+	return results, nil
+}
+
 func (r *postgresAppointmentRepository) GetTenantTimezone(tenantID uuid.UUID) (string, error) {
 	var tz string
 	err := r.db.QueryRow(`SELECT timezone FROM tenants WHERE id = $1`, tenantID).Scan(&tz)
 	if err != nil {
-		return "UTC", nil // Fallback to UTC if not found or err
+		return "UTC", nil
 	}
 	return tz, nil
 }

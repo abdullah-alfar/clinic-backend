@@ -103,12 +103,15 @@ func main() {
 	mux.Handle("GET /api/v1/appointments/availability", myhttp.AuthMiddleware(http.HandlerFunc(apptHandler.HandleGetAvailability)))
 	mux.Handle("GET /api/v1/appointments/next-available", myhttp.AuthMiddleware(http.HandlerFunc(apptHandler.HandleGetNextAvailable)))
 
-	// Appointments RBAC (Create/Read)
+	// Calendar view — returns enriched appointments with patient/doctor names
+	mux.Handle("GET /api/v1/appointments/calendar", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(apptHandler.HandleGetCalendar))))
+
+	// Appointments RBAC (Create)
 	mux.Handle("POST /api/v1/appointments", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "patient")(http.HandlerFunc(apptHandler.HandleSchedule))))
 
-	// Appointments RBAC (Update / Cancel)
+	// Appointments RBAC (Update / Reschedule / Cancel)
 	mux.Handle("PATCH /api/v1/appointments/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(apptHandler.HandleUpdate))))
-	mux.Handle("PATCH /api/v1/appointments/{id}/reschedule", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(apptHandler.HandleUpdate))))
+	mux.Handle("PATCH /api/v1/appointments/{id}/reschedule", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(apptHandler.HandleReschedule))))
 	mux.Handle("PATCH /api/v1/appointments/{id}/cancel", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(apptHandler.HandleStatus("canceled"))))
 
 	// Appointments RBAC (Confirm / Complete)
