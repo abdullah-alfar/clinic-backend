@@ -6,25 +6,26 @@ import (
 	"net/http"
 
 	"clinic-backend/internal/appointment"
+	"clinic-backend/internal/attachment"
 	"clinic-backend/internal/audit"
 	"clinic-backend/internal/auth"
+	"clinic-backend/internal/availability"
 	"clinic-backend/internal/doctor"
+	"clinic-backend/internal/invoice"
 	"clinic-backend/internal/notification"
 	"clinic-backend/internal/patient"
 	"clinic-backend/internal/platform/db"
 	myhttp "clinic-backend/internal/platform/http"
 	"clinic-backend/internal/queue"
 	"clinic-backend/internal/report"
+	"clinic-backend/internal/reportai"
 	"clinic-backend/internal/tenant"
 	"clinic-backend/internal/upload"
 	"clinic-backend/internal/visit"
-	"clinic-backend/internal/invoice"
-	"clinic-backend/internal/attachment"
-	"clinic-backend/internal/reportai"
 )
 
 func main() {
-	database, err := db.NewPostgresDB("localhost", "5432", "postgres", "postgres", "clinic")
+	database, err := db.NewPostgresDB("localhost", "5432", "postgres", "root", "clinic")
 	if err != nil {
 		log.Printf("Warning: Failed to connect to DB: %v", err)
 	}
@@ -44,6 +45,11 @@ func main() {
 	apptSvc := appointment.NewAppointmentService(apptRepo, auditSvc, qClient)
 	availSvc := appointment.NewAvailabilityService(apptRepo)
 	doctorSvc := doctor.NewDoctorService(database, auditSvc)
+
+	// Advanced Availability
+	availRepo := availability.NewPostgresAvailabilityRepository(database)
+	advAvailSvc := availability.NewAvailabilityService(availRepo)
+	advAvailHandler := availability.NewAvailabilityHandler(advAvailSvc)
 	notifSvc := notification.NewNotificationService(database)
 	reportSvc := report.NewReportService(database)
 	visitSvc := visit.NewVisitService(database, auditSvc)
@@ -98,6 +104,37 @@ func main() {
 	mux.Handle("POST /api/v1/doctors", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(doctorHandler.ServeHTTP))))
 	mux.Handle("PATCH /api/v1/doctors/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(doctorHandler.ServeHTTP))))
 	mux.Handle("DELETE /api/v1/doctors/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(doctorHandler.ServeHTTP))))
+
+	// ── Advanced Doctor Availability ─────────────────────────────────────────
+	// Full config view (schedules + breaks + exceptions)
+	mux.Handle("GET /api/v1/doctors/{id}/availability",
+		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor", "receptionist")(http.HandlerFunc(advAvailHandler.HandleGetFullAvailability))))
+
+	// Computed slot list
+	mux.Handle("GET /api/v1/doctors/{id}/availability/slots",
+		myhttp.AuthMiddleware(http.HandlerFunc(advAvailHandler.HandleGetSlots)))
+
+	// Schedule CRUD
+	mux.Handle("POST /api/v1/doctors/{id}/availability/schedules",
+		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(advAvailHandler.HandleCreateSchedule))))
+	mux.Handle("PATCH /api/v1/doctors/{id}/availability/schedules/{sid}",
+		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(advAvailHandler.HandleUpdateSchedule))))
+	mux.Handle("DELETE /api/v1/doctors/{id}/availability/schedules/{sid}",
+		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(advAvailHandler.HandleDeleteSchedule))))
+
+	// Break CRUD
+	mux.Handle("POST /api/v1/doctors/{id}/availability/schedules/{sid}/breaks",
+		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(advAvailHandler.HandleCreateBreak))))
+	mux.Handle("DELETE /api/v1/doctors/{id}/availability/breaks/{bid}",
+		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(advAvailHandler.HandleDeleteBreak))))
+
+	// Exception CRUD
+	mux.Handle("GET /api/v1/doctors/{id}/availability/exceptions",
+		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor", "receptionist")(http.HandlerFunc(advAvailHandler.HandleListExceptions))))
+	mux.Handle("POST /api/v1/doctors/{id}/availability/exceptions",
+		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(advAvailHandler.HandleCreateException))))
+	mux.Handle("DELETE /api/v1/doctors/{id}/availability/exceptions/{eid}",
+		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(advAvailHandler.HandleDeleteException))))
 
 	// Appointments Read
 	mux.Handle("GET /api/v1/appointments/availability", myhttp.AuthMiddleware(http.HandlerFunc(apptHandler.HandleGetAvailability)))
