@@ -22,6 +22,7 @@ import (
 	"clinic-backend/internal/tenant"
 	"clinic-backend/internal/upload"
 	"clinic-backend/internal/visit"
+	"clinic-backend/internal/search"
 )
 
 func main() {
@@ -65,6 +66,9 @@ func main() {
 	aiProvider := reportai.NewMockAIProvider()
 	aiSvc := reportai.NewReportAIService(aiRepo, aiProvider, auditSvc)
 
+	searchRepo := search.NewPostgresSearchRepository(database)
+	searchSvc := search.NewSearchService(searchRepo)
+
 	// Handlers
 	authHandler := auth.NewAuthHandler(authSvc)
 	tenantHandler := tenant.NewTenantHandler(tenantSvc)
@@ -79,6 +83,7 @@ func main() {
 
 	attHandler := attachment.NewAttachmentHandler(attSvc)
 	aiHandler := reportai.NewReportAIHandler(aiSvc, attRepo)
+	searchHandler := search.NewSearchHandler(searchSvc)
 
 	mux := http.NewServeMux()
 
@@ -86,6 +91,9 @@ func main() {
 	mux.HandleFunc("POST /api/v1/auth/login", authHandler.HandleLogin)
 	mux.HandleFunc("POST /api/v1/auth/refresh", authHandler.HandleRefresh)
 	mux.HandleFunc("GET /api/v1/tenants/config", tenantHandler.HandleGetConfig)
+
+	// Global Search
+	mux.Handle("GET /api/v1/search", myhttp.AuthMiddleware(http.HandlerFunc(searchHandler.HandleSearch)))
 
 	// Protected Auth Route
 	mux.Handle("GET /api/v1/auth/me", myhttp.AuthMiddleware(http.HandlerFunc(authHandler.HandleMe)))
