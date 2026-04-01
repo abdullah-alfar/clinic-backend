@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	myhttp "clinic-backend/internal/platform/http"
@@ -28,16 +29,16 @@ func (h *SearchHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := r.URL.Query().Get("q")
-	if query == "" {
-		myhttp.RespondJSON(w, http.StatusOK, SearchData{
-			Patients: []PatientSearchResult{},
-			Doctors:  []any{},
-			Reports:  []any{},
-		}, "success")
-		return
+	typesParam := r.URL.Query().Get("types")
+
+	var selectedTypes []string
+	if strings.TrimSpace(typesParam) != "" {
+		for _, t := range strings.Split(typesParam, ",") {
+			selectedTypes = append(selectedTypes, strings.TrimSpace(t))
+		}
 	}
 
-	data, searchErr := h.svc.GlobalSearch(ctx, userCtx.TenantID, query)
+	data, searchErr := h.svc.GlobalSearch(ctx, userCtx.TenantID, query, selectedTypes)
 	if searchErr != nil {
 		errStr := searchErr.Error()
 		myhttp.RespondError(w, http.StatusInternalServerError, "failed to execute search", "SEARCH_ERROR", errStr)

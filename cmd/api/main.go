@@ -66,8 +66,20 @@ func main() {
 	aiProvider := reportai.NewMockAIProvider()
 	aiSvc := reportai.NewReportAIService(aiRepo, aiProvider, auditSvc)
 
-	searchRepo := search.NewPostgresSearchRepository(database)
-	searchSvc := search.NewSearchService(searchRepo)
+	// Unified Search System
+	providerRegistry := search.NewProviderRegistry()
+	providerRegistry.Register(search.NewPatientProvider(database))
+	providerRegistry.Register(search.NewDoctorProvider(database))
+	providerRegistry.Register(search.NewAppointmentProvider(database))
+	providerRegistry.Register(search.NewInvoiceProvider(database))
+	providerRegistry.Register(search.NewAttachmentProvider(database))
+	providerRegistry.Register(search.NewVisitNoteProvider(database))
+	providerRegistry.Register(search.NewNotificationProvider(database))
+	providerRegistry.Register(search.NewMemoryProvider(database))
+	providerRegistry.Register(search.NewAuditProvider(database))
+	providerRegistry.Register(search.NewAvailabilityProvider(database))
+
+	searchSvc := search.NewSearchService(providerRegistry)
 
 	// Handlers
 	authHandler := auth.NewAuthHandler(authSvc)
