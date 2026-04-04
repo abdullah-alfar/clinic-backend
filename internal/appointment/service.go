@@ -304,9 +304,9 @@ func (s *AppointmentService) GetCalendarAppointments(tenantID uuid.UUID, params 
 func isValidTransition(current, next string) bool {
 	switch current {
 	case "scheduled":
-		return next == "confirmed" || next == "canceled"
+		return next == "confirmed" || next == "canceled" || next == "no_show"
 	case "confirmed":
-		return next == "completed" || next == "canceled"
+		return next == "completed" || next == "canceled" || next == "no_show"
 	}
 	return false
 }

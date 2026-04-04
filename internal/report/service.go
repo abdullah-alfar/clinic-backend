@@ -16,6 +16,7 @@ type DashboardSummary struct {
 	UpcomingAppointments   int `json:"upcoming_appointments"`
 	CompletedAppointments  int `json:"completed_appointments"`
 	CanceledAppointments   int `json:"canceled_appointments"`
+	NoShowCount            int `json:"no_show_count"`
 }
 
 type ReportService struct {
@@ -43,6 +44,7 @@ func (s *ReportService) GetSummary(tenantID uuid.UUID) (*DashboardSummary, error
 	s.db.QueryRow("SELECT COUNT(1) FROM appointments WHERE tenant_id = $1 AND start_time >= $2 AND status = 'scheduled'", tenantID, time.Now()).Scan(&summary.UpcomingAppointments)
 	s.db.QueryRow("SELECT COUNT(1) FROM appointments WHERE tenant_id = $1 AND status = 'completed'", tenantID).Scan(&summary.CompletedAppointments)
 	s.db.QueryRow("SELECT COUNT(1) FROM appointments WHERE tenant_id = $1 AND status = 'canceled'", tenantID).Scan(&summary.CanceledAppointments)
+	s.db.QueryRow("SELECT COUNT(1) FROM appointments WHERE tenant_id = $1 AND status = 'no_show'", tenantID).Scan(&summary.NoShowCount)
 
 	return &summary, nil
 }

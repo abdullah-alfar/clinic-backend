@@ -179,6 +179,7 @@ func main() {
 	mux.Handle("PATCH /api/v1/appointments/{id}/cancel", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(apptHandler.HandleStatus("canceled"))))
 	mux.Handle("PATCH /api/v1/appointments/{id}/confirm", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(apptHandler.HandleStatus("confirmed"))))
 	mux.Handle("PATCH /api/v1/appointments/{id}/complete", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(apptHandler.HandleStatus("completed"))))
+	mux.Handle("PATCH /api/v1/appointments/{id}/no-show", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(apptHandler.HandleStatus("no_show"))))
 
 	// Smart Scheduling
 	mux.Handle("GET /api/v1/appointments/smart-suggestions", myhttp.AuthMiddleware(http.HandlerFunc(schedulingHandler.SuggestSlots)))
