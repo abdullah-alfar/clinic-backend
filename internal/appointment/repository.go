@@ -42,12 +42,14 @@ type AppointmentRepository interface {
 	CheckConflictCount(tenantID, doctorID uuid.UUID, start, end time.Time, excludeID *uuid.UUID) (int, error)
 	CreateAppointment(appt *Appointment) error
 	GetAppointmentDoctorAndStatus(tenantID, apptID uuid.UUID) (uuid.UUID, string, error)
+	GetAppointmentByID(tenantID, apptID uuid.UUID) (*Appointment, error)
 	UpdateAppointmentTime(tenantID, apptID uuid.UUID, start, end time.Time) error
 	UpdateAppointmentStatus(tenantID, apptID uuid.UUID, status string) error
 	GetDoctorAvailabilities(tenantID uuid.UUID, doctorIDs []uuid.UUID, dayOfWeek int) ([]DoctorAvailability, error)
 	GetAppointmentsInRange(tenantID uuid.UUID, doctorIDs []uuid.UUID, start, end time.Time) ([]Appointment, error)
 	GetCalendarAppointments(tenantID uuid.UUID, doctorIDs []uuid.UUID, start, end time.Time) ([]CalendarAppointment, error)
 	GetTenantTimezone(tenantID uuid.UUID) (string, error)
+	GetNotificationData(tenantID, patientID, doctorID uuid.UUID) (NotificationData, error)
 }
 
 type postgresAppointmentRepository struct {
@@ -100,6 +102,21 @@ func (r *postgresAppointmentRepository) GetAppointmentDoctorAndStatus(tenantID, 
 	var status string
 	err := r.db.QueryRow(`SELECT doctor_id, status FROM appointments WHERE id = $1 AND tenant_id = $2`, apptID, tenantID).Scan(&doctorID, &status)
 	return doctorID, status, err
+}
+
+func (r *postgresAppointmentRepository) GetAppointmentByID(tenantID, apptID uuid.UUID) (*Appointment, error) {
+	var a Appointment
+	err := r.db.QueryRow(`
+		SELECT id, tenant_id, patient_id, doctor_id, status, start_time, end_time, created_by
+		FROM appointments WHERE id = $1 AND tenant_id = $2
+	`, apptID, tenantID).Scan(
+		&a.ID, &a.TenantID, &a.PatientID, &a.DoctorID, &a.Status,
+		&a.StartTime, &a.EndTime, &a.CreatedBy,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
 }
 
 func (r *postgresAppointmentRepository) UpdateAppointmentTime(tenantID, apptID uuid.UUID, start, end time.Time) error {
@@ -255,4 +272,35 @@ func (r *postgresAppointmentRepository) GetTenantTimezone(tenantID uuid.UUID) (s
 		return "UTC", nil
 	}
 	return tz, nil
+}
+
+type NotificationData struct {
+	PatientName  string
+	PatientEmail string
+	PatientPhone string
+	DoctorName   string
+	ClinicName   string
+	Timezone     string
+}
+
+func (r *postgresAppointmentRepository) GetNotificationData(tenantID, patientID, doctorID uuid.UUID) (NotificationData, error) {
+	query := `
+		SELECT 
+			COALESCE(p.first_name || ' ' || p.last_name, ''),
+			COALESCE(p.email, ''),
+			COALESCE(p.phone, ''),
+			COALESCE(d.full_name, ''),
+			t.name,
+			COALESCE(t.timezone, 'UTC')
+		FROM tenants t
+		LEFT JOIN patients p ON p.id = $2 AND p.tenant_id = $1
+		LEFT JOIN doctors d ON d.id = $3 AND d.tenant_id = $1
+		WHERE t.id = $1
+	`
+	var d NotificationData
+	err := r.db.QueryRow(query, tenantID, patientID, doctorID).Scan(
+		&d.PatientName, &d.PatientEmail, &d.PatientPhone,
+		&d.DoctorName, &d.ClinicName, &d.Timezone,
+	)
+	return d, err
 }

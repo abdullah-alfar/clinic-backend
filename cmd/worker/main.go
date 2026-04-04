@@ -4,7 +4,9 @@ import (
 	"log"
 
 	"clinic-backend/internal/mail"
+	"clinic-backend/internal/notification"
 	"clinic-backend/internal/platform/db"
+	"clinic-backend/internal/whatsapp"
 	"clinic-backend/internal/worker"
 )
 
@@ -16,8 +18,11 @@ func main() {
 	}
 
 	mailer := mail.NewLocalConsoleMailer()
+	emailSender := mail.NewLogEmailSender()
+	waSender := whatsapp.NewLogWhatsAppSender()
+	notifRepo := notification.NewPostgresNotificationRepository(database)
 	
-	processor := worker.NewProcessor(database, mailer)
+	processor := worker.NewProcessor(database, mailer, emailSender, waSender, notifRepo)
 
 	log.Println("[WORKER] Booting background consumer connected to Redis on localhost:6379...")
 	if err := processor.Start("localhost:6379"); err != nil {

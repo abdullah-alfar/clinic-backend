@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"clinic-backend/internal/audit"
+	"clinic-backend/internal/whatsapp"
 	"errors"
 	"github.com/google/uuid"
 )
@@ -37,6 +38,12 @@ func (s *PatientService) CreatePatient(p *Patient, actorID uuid.UUID) error {
 	p.ID = uuid.New()
 	p.CreatedAt = time.Now()
 
+	if p.Phone != nil && *p.Phone != "" {
+		if normalized, err := whatsapp.NormalizePhone(*p.Phone); err == nil {
+			p.Phone = &normalized
+		}
+	}
+
 	_, err := s.db.Exec(`
 		INSERT INTO patients (id, tenant_id, first_name, last_name, phone, email, date_of_birth, gender, notes, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -46,6 +53,25 @@ func (s *PatientService) CreatePatient(p *Patient, actorID uuid.UUID) error {
 		s.audit.LogAction(p.TenantID, actorID, "CREATE_PATIENT", "patient", p.ID, p)
 	}
 
+	return err
+}
+
+func (s *PatientService) UpdatePatient(p *Patient, actorID uuid.UUID) error {
+	if p.Phone != nil && *p.Phone != "" {
+		if normalized, err := whatsapp.NormalizePhone(*p.Phone); err == nil {
+			p.Phone = &normalized
+		}
+	}
+
+	_, err := s.db.Exec(`
+		UPDATE patients
+		SET first_name = $1, last_name = $2, phone = $3, email = $4, date_of_birth = $5, gender = $6, notes = $7, updated_at = NOW()
+		WHERE id = $8 AND tenant_id = $9
+	`, p.FirstName, p.LastName, p.Phone, p.Email, p.DateOfBirth, p.Gender, p.Notes, p.ID, p.TenantID)
+
+	if err == nil {
+		s.audit.LogAction(p.TenantID, actorID, "UPDATE_PATIENT", "patient", p.ID, p)
+	}
 	return err
 }
 

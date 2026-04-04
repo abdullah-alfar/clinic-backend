@@ -1,17 +1,18 @@
 package appointment
 
 import (
+	"context"
 	"errors"
 	"time"
 
 	"clinic-backend/internal/audit"
+	"clinic-backend/internal/notification"
 	"clinic-backend/internal/queue"
 
 	"github.com/google/uuid"
 )
 
 // Sentinel errors used throughout the appointment domain.
-// Handlers map these to typed HTTP responses.
 var (
 	ErrDoubleBooking   = errors.New("doctor is already booked for this time slot")
 	ErrDoctorInactive  = errors.New("doctor is not available during these hours")
@@ -22,7 +23,6 @@ var (
 	ErrNotMutable      = errors.New("appointment cannot be rescheduled in its current status")
 )
 
-// Appointment is the core domain model.
 type Appointment struct {
 	ID        uuid.UUID  `json:"id"`
 	TenantID  uuid.UUID  `json:"tenant_id"`
@@ -35,25 +35,50 @@ type Appointment struct {
 	CreatedBy *uuid.UUID `json:"created_by"`
 }
 
-// AppointmentService orchestrates scheduling business rules.
-// It does not contain persistence logic; that is delegated to AppointmentRepository.
 type AppointmentService struct {
-	repo  AppointmentRepository
-	audit *audit.AuditService
-	queue *queue.QueueClient
+	repo       AppointmentRepository
+	audit      *audit.AuditService
+	queue      *queue.QueueClient
+	dispatcher notification.Dispatcher
 }
 
-func NewAppointmentService(repo AppointmentRepository, audit *audit.AuditService, q *queue.QueueClient) *AppointmentService {
-	return &AppointmentService{repo: repo, audit: audit, queue: q}
+func NewAppointmentService(repo AppointmentRepository, audit *audit.AuditService, q *queue.QueueClient, d notification.Dispatcher) *AppointmentService {
+	return &AppointmentService{
+		repo:       repo,
+		audit:      audit,
+		queue:      q,
+		dispatcher: d,
+	}
 }
 
-// isMutableStatus returns true when the appointment status allows rescheduling.
+func (s *AppointmentService) dispatchEvent(tenantID, apptID, patientID, doctorID, actorID uuid.UUID, event string, start time.Time) {
+	if s.dispatcher == nil {
+		return
+	}
+	nd, err := s.repo.GetNotificationData(tenantID, patientID, doctorID)
+	if err != nil {
+		return
+	}
+	_ = s.dispatcher.Dispatch(context.Background(), notification.AppointmentEventPayload{
+		TenantID:      tenantID,
+		PatientID:     patientID,
+		AppointmentID: apptID,
+		ActorID:       actorID,
+		Event:         event,
+		PatientName:   nd.PatientName,
+		PatientEmail:  nd.PatientEmail,
+		PatientPhone:  nd.PatientPhone,
+		DoctorName:    nd.DoctorName,
+		ClinicName:    nd.ClinicName,
+		StartTime:     start,
+		Timezone:      nd.Timezone,
+	})
+}
+
 func isMutableStatus(status string) bool {
 	return status == "scheduled" || status == "confirmed"
 }
 
-// CheckDoctorAvailability verifies that the requested time window falls within
-// an active doctor_availability entry for the given tenant.
 func (s *AppointmentService) CheckDoctorAvailability(tenantID, doctorID uuid.UUID, start, end time.Time) error {
 	tz, _ := s.repo.GetTenantTimezone(tenantID)
 	loc, _ := time.LoadLocation(tz)
@@ -73,15 +98,11 @@ func (s *AppointmentService) CheckDoctorAvailability(tenantID, doctorID uuid.UUI
 	return nil
 }
 
-// CheckConflict returns true when another non-canceled appointment overlaps the window.
-// excludeID omits the current appointment itself (used during reschedule).
 func (s *AppointmentService) CheckConflict(tenantID, doctorID uuid.UUID, start, end time.Time, excludeID *uuid.UUID) bool {
 	count, _ := s.repo.CheckConflictCount(tenantID, doctorID, start, end, excludeID)
 	return count > 0
 }
 
-// validateTimeWindow enforces ordering and past-time constraints shared by
-// ScheduleAppointment, UpdateAppointmentTime, and RescheduleAppointment.
 func (s *AppointmentService) validateTimeWindow(tenantID uuid.UUID, start, end time.Time) error {
 	if start.After(end) || start.Equal(end) {
 		return ErrInvalidTime
@@ -97,7 +118,6 @@ func (s *AppointmentService) validateTimeWindow(tenantID uuid.UUID, start, end t
 	return nil
 }
 
-// ScheduleAppointment creates a new appointment after validating all business rules.
 func (s *AppointmentService) ScheduleAppointment(tenantID, patientID, doctorID uuid.UUID, start, end time.Time, createdBy uuid.UUID) (*Appointment, error) {
 	if err := s.validateTimeWindow(tenantID, start, end); err != nil {
 		return nil, err
@@ -127,33 +147,40 @@ func (s *AppointmentService) ScheduleAppointment(tenantID, patientID, doctorID u
 	}
 
 	s.audit.LogAction(tenantID, createdBy, "CREATE_APPOINTMENT", "appointment", appt.ID, appt)
-	s.enqueueCreationEvents(tenantID, createdBy, appt.ID, patientID, start)
+	s.dispatchEvent(tenantID, appt.ID, patientID, doctorID, createdBy, notification.EventAppointmentCreated, start)
+
+	if s.queue != nil {
+		s.queue.EnqueueNotification(queue.NotificationPayload{
+			TenantID: tenantID.String(),
+			UserID:   createdBy.String(),
+			Title:    "Appointment Booked",
+			Message:  "A new appointment was scheduled successfully.",
+			Type:     "appointment_created",
+		})
+	}
 
 	return appt, nil
 }
 
-// RescheduleAppointment moves an existing appointment to a new time window.
-// It reuses the same availability and conflict rules as ScheduleAppointment,
-// ensuring a single authoritative code path for scheduling logic.
 func (s *AppointmentService) RescheduleAppointment(tenantID, apptID uuid.UUID, start, end time.Time, actorID uuid.UUID) error {
 	if err := s.validateTimeWindow(tenantID, start, end); err != nil {
 		return err
 	}
 
-	doctorID, status, err := s.repo.GetAppointmentDoctorAndStatus(tenantID, apptID)
+	appt, err := s.repo.GetAppointmentByID(tenantID, apptID)
 	if err != nil {
 		return ErrNotFound
 	}
 
-	if !isMutableStatus(status) {
+	if !isMutableStatus(appt.Status) {
 		return ErrNotMutable
 	}
 
-	if err := s.CheckDoctorAvailability(tenantID, doctorID, start, end); err != nil {
+	if err := s.CheckDoctorAvailability(tenantID, appt.DoctorID, start, end); err != nil {
 		return err
 	}
 
-	if s.CheckConflict(tenantID, doctorID, start, end, &apptID) {
+	if s.CheckConflict(tenantID, appt.DoctorID, start, end, &apptID) {
 		return ErrDoubleBooking
 	}
 
@@ -165,32 +192,30 @@ func (s *AppointmentService) RescheduleAppointment(tenantID, apptID uuid.UUID, s
 		"start": start,
 		"end":   end,
 	})
-	s.enqueueReminderUpdate(tenantID, apptID, start)
+	s.dispatchEvent(tenantID, apptID, appt.PatientID, appt.DoctorID, actorID, notification.EventAppointmentRescheduled, start)
 
 	return nil
 }
 
-// UpdateAppointmentTime handles ad-hoc time edits (not drag-and-drop reschedule).
-// Kept for the existing PATCH /appointments/{id} route.
 func (s *AppointmentService) UpdateAppointmentTime(tenantID, apptID uuid.UUID, start, end time.Time, actorID uuid.UUID) error {
 	if err := s.validateTimeWindow(tenantID, start, end); err != nil {
 		return err
 	}
 
-	doctorID, status, err := s.repo.GetAppointmentDoctorAndStatus(tenantID, apptID)
+	appt, err := s.repo.GetAppointmentByID(tenantID, apptID)
 	if err != nil {
 		return err
 	}
 
-	if status == "canceled" || status == "completed" {
+	if appt.Status == "canceled" || appt.Status == "completed" {
 		return errors.New("cannot reschedule completed or canceled appointment")
 	}
 
-	if err := s.CheckDoctorAvailability(tenantID, doctorID, start, end); err != nil {
+	if err := s.CheckDoctorAvailability(tenantID, appt.DoctorID, start, end); err != nil {
 		return err
 	}
 
-	if s.CheckConflict(tenantID, doctorID, start, end, &apptID) {
+	if s.CheckConflict(tenantID, appt.DoctorID, start, end, &apptID) {
 		return ErrDoubleBooking
 	}
 
@@ -202,19 +227,18 @@ func (s *AppointmentService) UpdateAppointmentTime(tenantID, apptID uuid.UUID, s
 		"start": start,
 		"end":   end,
 	})
-	s.enqueueReminderUpdate(tenantID, apptID, start)
+	s.dispatchEvent(tenantID, apptID, appt.PatientID, appt.DoctorID, actorID, notification.EventAppointmentRescheduled, start)
 
 	return nil
 }
 
-// UpdateStatus transitions an appointment through its allowed status lifecycle.
 func (s *AppointmentService) UpdateStatus(tenantID, apptID uuid.UUID, newStatus string, actorID uuid.UUID) error {
-	_, currentStatus, err := s.repo.GetAppointmentDoctorAndStatus(tenantID, apptID)
+	appt, err := s.repo.GetAppointmentByID(tenantID, apptID)
 	if err != nil {
 		return err
 	}
 
-	if !isValidTransition(currentStatus, newStatus) {
+	if !isValidTransition(appt.Status, newStatus) {
 		return ErrInvalidStatus
 	}
 
@@ -223,7 +247,7 @@ func (s *AppointmentService) UpdateStatus(tenantID, apptID uuid.UUID, newStatus 
 	}
 
 	s.audit.LogAction(tenantID, actorID, "UPDATE_APPOINTMENT_STATUS", "appointment", apptID, map[string]string{
-		"old_status": currentStatus,
+		"old_status": appt.Status,
 		"new_status": newStatus,
 	})
 
@@ -237,11 +261,21 @@ func (s *AppointmentService) UpdateStatus(tenantID, apptID uuid.UUID, newStatus 
 		})
 	}
 
+	var event string
+	switch newStatus {
+	case "confirmed":
+		event = notification.EventAppointmentConfirmed
+	case "canceled":
+		event = notification.EventAppointmentCanceled
+	}
+
+	if event != "" {
+		s.dispatchEvent(tenantID, apptID, appt.PatientID, appt.DoctorID, actorID, event, appt.StartTime)
+	}
+
 	return nil
 }
 
-// GetCalendarAppointments retrieves enriched appointments for the calendar view.
-// Date boundaries are normalized to clinic-local midnight to prevent timezone edge cases.
 func (s *AppointmentService) GetCalendarAppointments(tenantID uuid.UUID, params CalendarQueryParams) ([]CalendarAppointment, string, error) {
 	tz, _ := s.repo.GetTenantTimezone(tenantID)
 	loc, _ := time.LoadLocation(tz)
@@ -250,7 +284,6 @@ func (s *AppointmentService) GetCalendarAppointments(tenantID uuid.UUID, params 
 		tz = "UTC"
 	}
 
-	// Normalize boundaries to clinic-local midnight
 	from := time.Date(params.DateFrom.Year(), params.DateFrom.Month(), params.DateFrom.Day(), 0, 0, 0, 0, loc)
 	to := time.Date(params.DateTo.Year(), params.DateTo.Month(), params.DateTo.Day(), 23, 59, 59, 0, loc)
 
@@ -267,7 +300,6 @@ func (s *AppointmentService) GetCalendarAppointments(tenantID uuid.UUID, params 
 	return appointments, tz, nil
 }
 
-// isValidTransition enforces the appointment status state machine.
 func isValidTransition(current, next string) bool {
 	switch current {
 	case "scheduled":
@@ -276,43 +308,4 @@ func isValidTransition(current, next string) bool {
 		return next == "completed" || next == "canceled"
 	}
 	return false
-}
-
-// enqueueCreationEvents fires booking confirmation and 24h reminder notifications.
-func (s *AppointmentService) enqueueCreationEvents(tenantID, createdBy, apptID, patientID uuid.UUID, start time.Time) {
-	if s.queue == nil {
-		return
-	}
-
-	s.queue.EnqueueNotification(queue.NotificationPayload{
-		TenantID: tenantID.String(),
-		UserID:   createdBy.String(),
-		Title:    "Appointment Booked",
-		Message:  "A new appointment was scheduled successfully.",
-		Type:     "appointment_created",
-	})
-
-	reminderTime := start.Add(-24 * time.Hour)
-	if reminderTime.After(time.Now()) {
-		s.queue.EnqueueReminder(queue.ReminderEmailPayload{
-			TenantID:      tenantID.String(),
-			AppointmentID: apptID.String(),
-			PatientID:     patientID.String(),
-		}, reminderTime)
-	}
-}
-
-// enqueueReminderUpdate schedules a new 24h reminder after a time change.
-func (s *AppointmentService) enqueueReminderUpdate(tenantID, apptID uuid.UUID, start time.Time) {
-	if s.queue == nil {
-		return
-	}
-
-	reminderTime := start.Add(-24 * time.Hour)
-	if reminderTime.After(time.Now()) {
-		s.queue.EnqueueReminder(queue.ReminderEmailPayload{
-			TenantID:      tenantID.String(),
-			AppointmentID: apptID.String(),
-		}, reminderTime)
-	}
 }

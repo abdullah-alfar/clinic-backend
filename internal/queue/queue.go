@@ -9,8 +9,11 @@ import (
 
 // Task Types
 const (
-	TypeReminderEmail       = "email:reminder"
-	TypeNotificationProcess = "notification:process"
+	TypeReminderEmail          = "email:reminder"
+	TypeNotificationProcess    = "notification:process"
+	TypeEmailNotification      = "notification:email"
+	TypeWhatsAppNotification   = "notification:whatsapp"
+	TypeAppointmentReminderMsg = "notification:appointment_reminder"
 )
 
 // Payloads
@@ -26,6 +29,22 @@ type NotificationPayload struct {
 	Title    string `json:"title"`
 	Message  string `json:"message"`
 	Type     string `json:"type"`
+}
+
+type EmailNotificationPayload struct {
+	NotificationID string `json:"notification_id"`
+	TenantID       string `json:"tenant_id"`
+	To             string `json:"to"`
+	Subject        string `json:"subject"`
+	HTMLBody       string `json:"html_body"`
+	TextBody       string `json:"text_body"`
+}
+
+type WhatsAppNotificationPayload struct {
+	NotificationID string `json:"notification_id"`
+	TenantID       string `json:"tenant_id"`
+	To             string `json:"to"`
+	Body           string `json:"body"`
 }
 
 type QueueClient struct {
@@ -53,6 +72,26 @@ func (q *QueueClient) EnqueueNotification(payload NotificationPayload) error {
 		return err
 	}
 	task := asynq.NewTask(TypeNotificationProcess, bytes)
+	_, err = q.client.Enqueue(task, asynq.MaxRetry(3))
+	return err
+}
+
+func (q *QueueClient) EnqueueEmailNotification(payload EmailNotificationPayload) error {
+	bytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	task := asynq.NewTask(TypeEmailNotification, bytes)
+	_, err = q.client.Enqueue(task, asynq.MaxRetry(3))
+	return err
+}
+
+func (q *QueueClient) EnqueueWhatsAppNotification(payload WhatsAppNotificationPayload) error {
+	bytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	task := asynq.NewTask(TypeWhatsAppNotification, bytes)
 	_, err = q.client.Enqueue(task, asynq.MaxRetry(3))
 	return err
 }

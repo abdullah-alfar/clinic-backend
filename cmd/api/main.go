@@ -19,35 +19,44 @@ import (
 	"clinic-backend/internal/queue"
 	"clinic-backend/internal/report"
 	"clinic-backend/internal/reportai"
+	"clinic-backend/internal/search"
 	"clinic-backend/internal/tenant"
 	"clinic-backend/internal/upload"
 	"clinic-backend/internal/visit"
-	"clinic-backend/internal/search"
+	"clinic-backend/internal/whatsapp"
+	"clinic-backend/internal/whatsappbot"
 )
 
 func main() {
-	database, err := db.NewPostgresDB("localhost", "5432", "postgres", "root", "clinic")
+	database, err := db.NewPostgresDB("localhost", "5432", "postgres", "postgres", "clinic")
 	if err != nil {
 		log.Printf("Warning: Failed to connect to DB: %v", err)
 	}
 
-	// Setup Redis Queue
-	qClient, err := queue.NewQueueClient("localhost:6379")
+	queueClient, err := queue.NewQueueClient("localhost:6379")
 	if err != nil {
 		log.Printf("Warning: Redis unavailable: %v", err)
 	}
 
-	// Services
+	waSender := whatsapp.NewLogWhatsAppSender()
+
 	auditSvc := audit.NewAuditService(database)
 	authSvc := auth.NewAuthService(database)
 	tenantSvc := tenant.NewTenantService(database)
 	patientSvc := patient.NewPatientService(database, auditSvc)
+	
+	notifRepo := notification.NewPostgresNotificationRepository(database)
+	prefSvc := notification.NewPreferenceService(notifRepo)
+	notifDispatcher := notification.NewNotificationDispatcher(notifRepo, prefSvc, queueClient)
+
 	apptRepo := appointment.NewPostgresAppointmentRepository(database)
-	apptSvc := appointment.NewAppointmentService(apptRepo, auditSvc, qClient)
+	apptSvc := appointment.NewAppointmentService(apptRepo, auditSvc, queueClient, notifDispatcher)
 	availSvc := appointment.NewAvailabilityService(apptRepo)
 	doctorSvc := doctor.NewDoctorService(database, auditSvc)
 
-	// Advanced Availability
+	botRepo := whatsappbot.NewPostgresBotRepository(database)
+	botSvc := whatsappbot.NewBotService(botRepo, waSender, apptSvc)
+
 	availRepo := availability.NewPostgresAvailabilityRepository(database)
 	advAvailSvc := availability.NewAvailabilityService(availRepo)
 	advAvailHandler := availability.NewAvailabilityHandler(advAvailSvc)
@@ -66,7 +75,6 @@ func main() {
 	aiProvider := reportai.NewMockAIProvider()
 	aiSvc := reportai.NewReportAIService(aiRepo, aiProvider, auditSvc)
 
-	// Unified Search System
 	providerRegistry := search.NewProviderRegistry()
 	providerRegistry.Register(search.NewPatientProvider(database))
 	providerRegistry.Register(search.NewDoctorProvider(database))
@@ -88,7 +96,7 @@ func main() {
 	apptHandler := appointment.NewAppointmentHandler(apptSvc, availSvc)
 	doctorHandler := doctor.NewDoctorHandler(doctorSvc)
 	uploadHandler := upload.NewUploadHandler(database, auditSvc)
-	notifHandler := notification.NewNotificationHandler(notifSvc)
+	notifHandler := notification.NewNotificationHandler(notifSvc, notifRepo, prefSvc)
 	reportHandler := report.NewReportHandler(reportSvc)
 	visitHandler := visit.NewVisitHandler(visitSvc)
 	invHandler := invoice.NewInvoiceHandler(invSvc)
@@ -96,6 +104,7 @@ func main() {
 	attHandler := attachment.NewAttachmentHandler(attSvc)
 	aiHandler := reportai.NewReportAIHandler(aiSvc, attRepo)
 	searchHandler := search.NewSearchHandler(searchSvc)
+	botHandler := whatsappbot.NewBotHandler(botSvc, "dev_secret")
 
 	mux := http.NewServeMux()
 
@@ -103,6 +112,9 @@ func main() {
 	mux.HandleFunc("POST /api/v1/auth/login", authHandler.HandleLogin)
 	mux.HandleFunc("POST /api/v1/auth/refresh", authHandler.HandleRefresh)
 	mux.HandleFunc("GET /api/v1/tenants/config", tenantHandler.HandleGetConfig)
+
+	// Webhooks
+	mux.HandleFunc("POST /webhooks/whatsapp", botHandler.HandleWebhook)
 
 	// Global Search
 	mux.Handle("GET /api/v1/search", myhttp.AuthMiddleware(http.HandlerFunc(searchHandler.HandleSearch)))
@@ -126,29 +138,20 @@ func main() {
 	mux.Handle("DELETE /api/v1/doctors/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(doctorHandler.ServeHTTP))))
 
 	// ── Advanced Doctor Availability ─────────────────────────────────────────
-	// Full config view (schedules + breaks + exceptions)
 	mux.Handle("GET /api/v1/doctors/{id}/availability",
 		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor", "receptionist")(http.HandlerFunc(advAvailHandler.HandleGetFullAvailability))))
-
-	// Computed slot list
 	mux.Handle("GET /api/v1/doctors/{id}/availability/slots",
 		myhttp.AuthMiddleware(http.HandlerFunc(advAvailHandler.HandleGetSlots)))
-
-	// Schedule CRUD
 	mux.Handle("POST /api/v1/doctors/{id}/availability/schedules",
 		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(advAvailHandler.HandleCreateSchedule))))
 	mux.Handle("PATCH /api/v1/doctors/{id}/availability/schedules/{sid}",
 		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(advAvailHandler.HandleUpdateSchedule))))
 	mux.Handle("DELETE /api/v1/doctors/{id}/availability/schedules/{sid}",
 		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(advAvailHandler.HandleDeleteSchedule))))
-
-	// Break CRUD
 	mux.Handle("POST /api/v1/doctors/{id}/availability/schedules/{sid}/breaks",
 		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(advAvailHandler.HandleCreateBreak))))
 	mux.Handle("DELETE /api/v1/doctors/{id}/availability/breaks/{bid}",
 		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(advAvailHandler.HandleDeleteBreak))))
-
-	// Exception CRUD
 	mux.Handle("GET /api/v1/doctors/{id}/availability/exceptions",
 		myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor", "receptionist")(http.HandlerFunc(advAvailHandler.HandleListExceptions))))
 	mux.Handle("POST /api/v1/doctors/{id}/availability/exceptions",
@@ -159,29 +162,26 @@ func main() {
 	// Appointments Read
 	mux.Handle("GET /api/v1/appointments/availability", myhttp.AuthMiddleware(http.HandlerFunc(apptHandler.HandleGetAvailability)))
 	mux.Handle("GET /api/v1/appointments/next-available", myhttp.AuthMiddleware(http.HandlerFunc(apptHandler.HandleGetNextAvailable)))
-
-	// Calendar view — returns enriched appointments with patient/doctor names
 	mux.Handle("GET /api/v1/appointments/calendar", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(apptHandler.HandleGetCalendar))))
 
-	// Appointments RBAC (Create)
+	// Appointments RBAC
 	mux.Handle("POST /api/v1/appointments", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "patient")(http.HandlerFunc(apptHandler.HandleSchedule))))
-
-	// Appointments RBAC (Update / Reschedule / Cancel)
 	mux.Handle("PATCH /api/v1/appointments/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(apptHandler.HandleUpdate))))
 	mux.Handle("PATCH /api/v1/appointments/{id}/reschedule", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(apptHandler.HandleReschedule))))
 	mux.Handle("PATCH /api/v1/appointments/{id}/cancel", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(apptHandler.HandleStatus("canceled"))))
-
-	// Appointments RBAC (Confirm / Complete)
 	mux.Handle("PATCH /api/v1/appointments/{id}/confirm", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(apptHandler.HandleStatus("confirmed"))))
 	mux.Handle("PATCH /api/v1/appointments/{id}/complete", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(apptHandler.HandleStatus("completed"))))
 
-	// Uploads & Static files
+	// Uploads
 	mux.Handle("POST /api/v1/uploads", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(uploadHandler.HandleUpload))))
 	mux.Handle("GET /uploads/{tenant_id}/{file}", myhttp.AuthMiddleware(http.HandlerFunc(uploadHandler.HandleStatic)))
 
 	// Notifications
 	mux.Handle("GET /api/v1/notifications", myhttp.AuthMiddleware(http.HandlerFunc(notifHandler.HandleList)))
 	mux.Handle("PATCH /api/v1/notifications/{id}/read", myhttp.AuthMiddleware(http.HandlerFunc(notifHandler.HandleRead)))
+	mux.Handle("GET /api/v1/patients/{id}/notifications", myhttp.AuthMiddleware(http.HandlerFunc(notifHandler.HandlePatientHistory)))
+	mux.Handle("GET /api/v1/patients/{id}/notification-preferences", myhttp.AuthMiddleware(http.HandlerFunc(notifHandler.HandleGetPreferences)))
+	mux.Handle("PUT /api/v1/patients/{id}/notification-preferences", myhttp.AuthMiddleware(http.HandlerFunc(notifHandler.HandleUpdatePreferences)))
 
 	// Attachments
 	mux.Handle("POST /api/v1/patients/{id}/attachments", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(attHandler.HandleUploadAttachment))))
