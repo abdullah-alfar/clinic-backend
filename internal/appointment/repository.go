@@ -91,9 +91,9 @@ func (r *postgresAppointmentRepository) CheckConflictCount(tenantID, doctorID uu
 
 func (r *postgresAppointmentRepository) CreateAppointment(appt *Appointment) error {
 	_, err := r.db.Exec(`
-		INSERT INTO appointments (id, tenant_id, patient_id, doctor_id, status, start_time, end_time, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, appt.ID, appt.TenantID, appt.PatientID, appt.DoctorID, appt.Status, appt.StartTime, appt.EndTime, appt.CreatedBy)
+		INSERT INTO appointments (id, tenant_id, patient_id, doctor_id, status, start_time, end_time, created_by, recurrence_rule_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, appt.ID, appt.TenantID, appt.PatientID, appt.DoctorID, appt.Status, appt.StartTime, appt.EndTime, appt.CreatedBy, appt.RecurrenceRuleID)
 	return err
 }
 

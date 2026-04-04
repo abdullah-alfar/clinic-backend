@@ -17,8 +17,10 @@ import (
 	"clinic-backend/internal/platform/db"
 	myhttp "clinic-backend/internal/platform/http"
 	"clinic-backend/internal/queue"
+	"clinic-backend/internal/recurrence"
 	"clinic-backend/internal/report"
 	"clinic-backend/internal/reportai"
+	"clinic-backend/internal/scheduling"
 	"clinic-backend/internal/search"
 	"clinic-backend/internal/tenant"
 	"clinic-backend/internal/upload"
@@ -64,8 +66,14 @@ func main() {
 	reportSvc := report.NewReportService(database)
 	visitSvc := visit.NewVisitService(database, auditSvc)
 
-	invRepo := invoice.NewPostgresInvoiceRepository(database)
 	invSvc := invoice.NewInvoiceService(invRepo, database)
+
+	schedulingSvc := scheduling.NewSmartSchedulingService(advAvailSvc)
+	schedulingHandler := scheduling.NewSmartSchedulingHandler(schedulingSvc)
+
+	recurrenceRepo := recurrence.NewPostgresRecurrenceRepository(database)
+	recurrenceSvc := recurrence.NewRecurrenceService(recurrenceRepo, apptRepo, advAvailSvc)
+	recurrenceHandler := recurrence.NewRecurrenceHandler(recurrenceSvc)
 
 	attRepo := attachment.NewPostgresRepository(database)
 	attStorage := attachment.NewLocalFileStorage("./uploads")
@@ -171,6 +179,13 @@ func main() {
 	mux.Handle("PATCH /api/v1/appointments/{id}/cancel", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(apptHandler.HandleStatus("canceled"))))
 	mux.Handle("PATCH /api/v1/appointments/{id}/confirm", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(apptHandler.HandleStatus("confirmed"))))
 	mux.Handle("PATCH /api/v1/appointments/{id}/complete", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(apptHandler.HandleStatus("completed"))))
+
+	// Smart Scheduling
+	mux.Handle("GET /api/v1/appointments/smart-suggestions", myhttp.AuthMiddleware(http.HandlerFunc(schedulingHandler.SuggestSlots)))
+
+	// Recurring Appointments
+	mux.Handle("POST /api/v1/appointments/recurring", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(recurrenceHandler.CreateRule))))
+	mux.Handle("GET /api/v1/appointments/recurring", myhttp.AuthMiddleware(http.HandlerFunc(recurrenceHandler.ListRules)))
 
 	// Uploads
 	mux.Handle("POST /api/v1/uploads", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(uploadHandler.HandleUpload))))

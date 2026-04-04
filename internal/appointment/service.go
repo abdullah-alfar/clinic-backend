@@ -31,8 +31,9 @@ type Appointment struct {
 	Status    string     `json:"status"`
 	StartTime time.Time  `json:"start_time"`
 	EndTime   time.Time  `json:"end_time"`
-	Reason    *string    `json:"reason"`
-	CreatedBy *uuid.UUID `json:"created_by"`
+	Reason           *string    `json:"reason"`
+	CreatedBy        *uuid.UUID `json:"created_by"`
+	RecurrenceRuleID *uuid.UUID `json:"recurrence_rule_id,omitempty"`
 }
 
 type AppointmentService struct {
