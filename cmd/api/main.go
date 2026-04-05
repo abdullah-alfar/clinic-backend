@@ -189,7 +189,7 @@ func main() {
 	mux.Handle("PATCH /api/v1/appointments/{id}/no-show", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(apptHandler.HandleStatus("no_show"))))
 
 	// Smart Scheduling
-	mux.Handle("GET /api/v1/appointments/smart-suggestions", myhttp.AuthMiddleware(http.HandlerFunc(schedulingHandler.SuggestSlots)))
+	mux.Handle("GET /api/v1/appointments/smart-suggestions", myhttp.AuthMiddleware(http.HandlerFunc(schedulingHandler.HandleSmartSuggestions)))
 
 	// Recurring Appointments
 	mux.Handle("POST /api/v1/appointments/recurring", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(recurrenceHandler.CreateRule))))

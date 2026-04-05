@@ -19,7 +19,7 @@ func NewSmartSchedulingHandler(service *SmartSchedulingService) *SmartScheduling
 	return &SmartSchedulingHandler{service: service}
 }
 
-func (h *SmartSchedulingHandler) SuggestSlots(w http.ResponseWriter, r *http.Request) {
+func (h *SmartSchedulingHandler) HandleSmartSuggestions(w http.ResponseWriter, r *http.Request) {
 	uctx, ok := shared.GetUserContext(r.Context())
 	if !ok {
 		myhttp.RespondError(w, http.StatusUnauthorized, "missing user context", "UNAUTHORIZED", nil)
@@ -34,9 +34,10 @@ func (h *SmartSchedulingHandler) SuggestSlots(w http.ResponseWriter, r *http.Req
 
 	doctorIDStr := query.Get("doctor_id")
 	var doctorID *uuid.UUID
-	if doctorIDStr != "" {
-		dID, _ := uuid.Parse(doctorIDStr)
-		doctorID = &dID
+	if doctorIDStr != "" && doctorIDStr != "undefined" {
+		if dID, err := uuid.Parse(doctorIDStr); err == nil {
+			doctorID = &dID
+		}
 	}
 
 	dateFromStr := query.Get("date_from")
