@@ -18,7 +18,7 @@ const (
 	EntityNotification EntityType = "notifications"
 	EntityMemory       EntityType = "memory"
 	EntityAudit        EntityType = "audit_logs"
-	EntityAvailability EntityType = "doctor_availability"
+	EntityDoctorSchedule EntityType = "doctor_schedules"
 )
 
 type SearchResultItem struct {

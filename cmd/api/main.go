@@ -51,17 +51,17 @@ func main() {
 	prefSvc := notification.NewPreferenceService(notifRepo)
 	notifDispatcher := notification.NewNotificationDispatcher(notifRepo, prefSvc, queueClient)
 
+	availRepo := availability.NewPostgresAvailabilityRepository(database)
+	advAvailSvc := availability.NewAvailabilityService(availRepo)
+	advAvailHandler := availability.NewAvailabilityHandler(advAvailSvc)
+
 	apptRepo := appointment.NewPostgresAppointmentRepository(database)
-	apptSvc := appointment.NewAppointmentService(apptRepo, auditSvc, queueClient, notifDispatcher)
-	availSvc := appointment.NewAvailabilityService(apptRepo)
+	apptSvc := appointment.NewAppointmentService(apptRepo, auditSvc, queueClient, notifDispatcher, advAvailSvc)
 	doctorSvc := doctor.NewDoctorService(database, auditSvc)
 
 	botRepo := whatsappbot.NewPostgresBotRepository(database)
 	botSvc := whatsappbot.NewBotService(botRepo, waSender, apptSvc)
 
-	availRepo := availability.NewPostgresAvailabilityRepository(database)
-	advAvailSvc := availability.NewAvailabilityService(availRepo)
-	advAvailHandler := availability.NewAvailabilityHandler(advAvailSvc)
 	notifSvc := notification.NewNotificationService(database)
 	reportSvc := report.NewReportService(database)
 	visitSvc := visit.NewVisitService(database, auditSvc)
@@ -94,7 +94,7 @@ func main() {
 	providerRegistry.Register(search.NewNotificationProvider(database))
 	providerRegistry.Register(search.NewMemoryProvider(database))
 	providerRegistry.Register(search.NewAuditProvider(database))
-	providerRegistry.Register(search.NewAvailabilityProvider(database))
+	providerRegistry.Register(search.NewScheduleProvider(database))
 
 	searchSvc := search.NewSearchService(providerRegistry)
 
@@ -102,7 +102,7 @@ func main() {
 	authHandler := auth.NewAuthHandler(authSvc)
 	tenantHandler := tenant.NewTenantHandler(tenantSvc)
 	patientHandler := patient.NewPatientHandler(patientSvc)
-	apptHandler := appointment.NewAppointmentHandler(apptSvc, availSvc)
+	apptHandler := appointment.NewAppointmentHandler(apptSvc, advAvailSvc, doctorSvc)
 	doctorHandler := doctor.NewDoctorHandler(doctorSvc)
 	uploadHandler := upload.NewUploadHandler(database, auditSvc)
 	notifHandler := notification.NewNotificationHandler(notifSvc, notifRepo, prefSvc)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"clinic-backend/internal/audit"
+	"clinic-backend/internal/availability"
 	"clinic-backend/internal/notification"
 	"clinic-backend/internal/queue"
 
@@ -41,14 +42,16 @@ type AppointmentService struct {
 	audit      *audit.AuditService
 	queue      *queue.QueueClient
 	dispatcher notification.Dispatcher
+	availSvc   *availability.AvailabilityService
 }
 
-func NewAppointmentService(repo AppointmentRepository, audit *audit.AuditService, q *queue.QueueClient, d notification.Dispatcher) *AppointmentService {
+func NewAppointmentService(repo AppointmentRepository, audit *audit.AuditService, q *queue.QueueClient, d notification.Dispatcher, availSvc *availability.AvailabilityService) *AppointmentService {
 	return &AppointmentService{
 		repo:       repo,
 		audit:      audit,
 		queue:      q,
 		dispatcher: d,
+		availSvc:   availSvc,
 	}
 }
 
@@ -81,19 +84,11 @@ func isMutableStatus(status string) bool {
 }
 
 func (s *AppointmentService) CheckDoctorAvailability(tenantID, doctorID uuid.UUID, start, end time.Time) error {
-	tz, _ := s.repo.GetTenantTimezone(tenantID)
-	loc, _ := time.LoadLocation(tz)
-	if loc == nil {
-		loc = time.UTC
-	}
-
-	startInLoc := start.In(loc)
-	dayOfWeek := int(startInLoc.Weekday())
-	startTimeStr := startInLoc.Format("15:04:05")
-	endTimeStr := end.In(loc).Format("15:04:05")
-
-	count, err := s.repo.CheckDoctorAvailabilityCount(tenantID, doctorID, dayOfWeek, startTimeStr, endTimeStr)
-	if err != nil || count == 0 {
+	// The new Availability module is now the single source of truth for scheduling rules.
+	err := s.availSvc.IsDoctorAvailableAt(context.Background(), tenantID, doctorID, start, end)
+	if err != nil {
+		// Map the module's generic NOT_FOUND into the scheduling domain's specific ErrDoctorInactive
+		// so the HTTP handlers return the correct typed status code (OUTSIDE_AVAILABILITY).
 		return ErrDoctorInactive
 	}
 	return nil

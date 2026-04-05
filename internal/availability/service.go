@@ -413,6 +413,29 @@ func (s *AvailabilityService) GetAvailableSlots(ctx context.Context, tenantID, d
 	}, nil
 }
 
+// GetNextAvailableSlot finds the very next available slot within a 14-day rolling window.
+func (s *AvailabilityService) GetNextAvailableSlot(ctx context.Context, tenantID, doctorID uuid.UUID) (*SlotDTO, error) {
+	now := time.Now()
+	// Look ahead up to 14 days
+	maxDate := now.AddDate(0, 0, 14)
+
+	slotsResp, err := s.GetAvailableSlots(ctx, tenantID, doctorID, SlotQueryParams{
+		DateFrom: now,
+		DateTo:   maxDate,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, slot := range slotsResp.Slots {
+		if slot.Status == SlotStatusAvailable {
+			return &slot, nil
+		}
+	}
+
+	return nil, ErrNotFound
+}
+
 // classifySlot determines the status of a single slot based on past-time,
 // break windows, and existing appointments. Order of precedence:
 //  1. unavailable (past)

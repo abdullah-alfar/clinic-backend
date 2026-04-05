@@ -10,6 +10,12 @@ import (
 
 var SecretKey = []byte("super-secret-key-replace-in-production")
 
+// ErrTokenExpired is returned by ValidateToken when the JWT signature is valid
+// but the token's expiry time has passed. Callers (middleware, handlers) can
+// distinguish this from a structurally invalid or tampered token and respond
+// with the correct error code (TOKEN_EXPIRED vs INVALID_TOKEN).
+var ErrTokenExpired = errors.New("token is expired")
+
 type Claims struct {
 	UserID   uuid.UUID `json:"user_id"`
 	TenantID uuid.UUID `json:"tenant_id"`
@@ -33,7 +39,7 @@ func GenerateTokenPairs(userID, tenantID uuid.UUID, role string) (string, string
 		return "", "", err
 	}
 
-	// 7 Days Refresh Token (Opaque or JWT, we use JWT here for consistency but store its claim in DB)
+	// 7 Days Refresh Token (stored in DB for rotation; JWT format for consistency)
 	refreshClaims := Claims{
 		UserID:   userID,
 		TenantID: tenantID,
@@ -51,12 +57,27 @@ func GenerateTokenPairs(userID, tenantID uuid.UUID, role string) (string, string
 	return accessToken, refreshToken, nil
 }
 
+// ValidateToken parses and validates tokenStr against SecretKey.
+//
+// Error contract:
+//   - Returns (claims, nil)           → token is valid and unexpired.
+//   - Returns (nil, ErrTokenExpired)  → valid signature but past ExpiresAt.
+//   - Returns (nil, err)              → structurally invalid, tampered, or wrong algorithm.
+//
+// Callers MUST check errors.Is(err, ErrTokenExpired) before treating a failure
+// as a security violation — an expired token is a normal lifecycle event, not an attack.
 func ValidateToken(tokenStr string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return SecretKey, nil
 	})
 
 	if err != nil {
+		// Detect expiry specifically so middleware can return TOKEN_EXPIRED instead
+		// of the generic INVALID_TOKEN code. The golang-jwt library wraps the
+		// underlying cause in a join error, so errors.Is is the correct check.
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, ErrTokenExpired
+		}
 		return nil, err
 	}
 

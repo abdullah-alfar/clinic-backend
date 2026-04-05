@@ -8,16 +8,7 @@ import (
 	"github.com/lib/pq"
 )
 
-// DoctorAvailability holds a doctor's configured working window for a given day.
-type DoctorAvailability struct {
-	ID        uuid.UUID
-	TenantID  uuid.UUID
-	DoctorID  uuid.UUID
-	DayOfWeek int
-	StartTime string
-	EndTime   string
-	IsActive  bool
-}
+
 
 // CalendarAppointment is the domain model returned by the calendar query.
 // It carries joined patient and doctor names so the service layer does not
@@ -38,14 +29,15 @@ type CalendarAppointment struct {
 // AppointmentRepository defines the data access contract for the appointment module.
 // All implementations must satisfy this interface; no business logic lives here.
 type AppointmentRepository interface {
-	CheckDoctorAvailabilityCount(tenantID, doctorID uuid.UUID, dayOfWeek int, startTimeStr, endTimeStr string) (int, error)
+	// Legacy CheckDoctorAvailabilityCount removed
+
 	CheckConflictCount(tenantID, doctorID uuid.UUID, start, end time.Time, excludeID *uuid.UUID) (int, error)
 	CreateAppointment(appt *Appointment) error
 	GetAppointmentDoctorAndStatus(tenantID, apptID uuid.UUID) (uuid.UUID, string, error)
 	GetAppointmentByID(tenantID, apptID uuid.UUID) (*Appointment, error)
 	UpdateAppointmentTime(tenantID, apptID uuid.UUID, start, end time.Time) error
 	UpdateAppointmentStatus(tenantID, apptID uuid.UUID, status string) error
-	GetDoctorAvailabilities(tenantID uuid.UUID, doctorIDs []uuid.UUID, dayOfWeek int) ([]DoctorAvailability, error)
+	// Legacy GetDoctorAvailabilities removed
 	GetAppointmentsInRange(tenantID uuid.UUID, doctorIDs []uuid.UUID, start, end time.Time) ([]Appointment, error)
 	GetCalendarAppointments(tenantID uuid.UUID, doctorIDs []uuid.UUID, start, end time.Time) ([]CalendarAppointment, error)
 	GetTenantTimezone(tenantID uuid.UUID) (string, error)
@@ -60,15 +52,7 @@ func NewPostgresAppointmentRepository(db *sql.DB) AppointmentRepository {
 	return &postgresAppointmentRepository{db: db}
 }
 
-func (r *postgresAppointmentRepository) CheckDoctorAvailabilityCount(tenantID, doctorID uuid.UUID, dayOfWeek int, startTimeStr, endTimeStr string) (int, error) {
-	var count int
-	err := r.db.QueryRow(`
-		SELECT count(1) FROM doctor_availability
-		WHERE tenant_id = $1 AND doctor_id = $2 AND day_of_week = $3 AND is_active = true
-		AND start_time <= $4 AND end_time >= $5
-	`, tenantID, doctorID, dayOfWeek, startTimeStr, endTimeStr).Scan(&count)
-	return count, err
-}
+
 
 func (r *postgresAppointmentRepository) CheckConflictCount(tenantID, doctorID uuid.UUID, start, end time.Time, excludeID *uuid.UUID) (int, error) {
 	query := `
@@ -129,35 +113,7 @@ func (r *postgresAppointmentRepository) UpdateAppointmentStatus(tenantID, apptID
 	return err
 }
 
-func (r *postgresAppointmentRepository) GetDoctorAvailabilities(tenantID uuid.UUID, doctorIDs []uuid.UUID, dayOfWeek int) ([]DoctorAvailability, error) {
-	query := `
-		SELECT id, tenant_id, doctor_id, day_of_week, start_time::text, end_time::text, is_active
-		FROM doctor_availability
-		WHERE tenant_id = $1 AND day_of_week = $2 AND is_active = true
-	`
-	args := []interface{}{tenantID, dayOfWeek}
 
-	if len(doctorIDs) > 0 {
-		query += " AND doctor_id = ANY($3)"
-		args = append(args, pq.Array(doctorIDs))
-	}
-
-	rows, err := r.db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var results []DoctorAvailability
-	for rows.Next() {
-		var a DoctorAvailability
-		if err := rows.Scan(&a.ID, &a.TenantID, &a.DoctorID, &a.DayOfWeek, &a.StartTime, &a.EndTime, &a.IsActive); err != nil {
-			return nil, err
-		}
-		results = append(results, a)
-	}
-	return results, nil
-}
 
 func (r *postgresAppointmentRepository) GetAppointmentsInRange(tenantID uuid.UUID, doctorIDs []uuid.UUID, start, end time.Time) ([]Appointment, error) {
 	query := `

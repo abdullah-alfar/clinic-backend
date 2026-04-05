@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"clinic-backend/internal/availability"
+	"clinic-backend/internal/doctor"
 	myhttp "clinic-backend/internal/platform/http"
 	"clinic-backend/internal/shared"
 
@@ -15,12 +17,13 @@ import (
 // AppointmentHandler routes HTTP requests to the AppointmentService.
 // No business logic lives here; it only handles parsing, delegation, and response mapping.
 type AppointmentHandler struct {
-	svc      *AppointmentService
-	availSvc *AvailabilityService
+	svc       *AppointmentService
+	availSvc  *availability.AvailabilityService
+	doctorSvc *doctor.DoctorService
 }
 
-func NewAppointmentHandler(svc *AppointmentService, availSvc *AvailabilityService) *AppointmentHandler {
-	return &AppointmentHandler{svc: svc, availSvc: availSvc}
+func NewAppointmentHandler(svc *AppointmentService, availSvc *availability.AvailabilityService, doctorSvc *doctor.DoctorService) *AppointmentHandler {
+	return &AppointmentHandler{svc: svc, availSvc: availSvc, doctorSvc: doctorSvc}
 }
 
 // ScheduleRequest is the body for POST /appointments.
@@ -246,18 +249,36 @@ func (h *AppointmentHandler) HandleGetAvailability(w http.ResponseWriter, r *htt
 		}
 	}
 
+	var doctorIDs []uuid.UUID
+	if docIDPtr != nil {
+		doctorIDs = append(doctorIDs, *docIDPtr)
+	} else {
+		docs, err := h.doctorSvc.List(userCtx.TenantID)
+		if err == nil {
+			for _, d := range docs {
+				doctorIDs = append(doctorIDs, d.ID)
+			}
+		}
+	}
+
 	tz, _ := h.svc.repo.GetTenantTimezone(userCtx.TenantID)
-	slots, err := h.availSvc.GetAvailableSlots(userCtx.TenantID, docIDPtr, dateFrom, dateTo, tz)
-	if err != nil {
-		myhttp.RespondError(w, http.StatusInternalServerError, "failed to get availability", "INTERNAL_ERROR", nil)
-		return
+	
+	var slots []availability.DoctorSlotsDTO
+	for _, dID := range doctorIDs {
+		docSlots, err := h.availSvc.GetAvailableSlots(r.Context(), userCtx.TenantID, dID, availability.SlotQueryParams{
+			DateFrom: dateFrom,
+			DateTo:   dateTo,
+		})
+		if err == nil && docSlots != nil {
+			slots = append(slots, *docSlots)
+		}
 	}
 
 	type responseWrapper struct {
-		Data     []DoctorAvailabilityResponse `json:"data"`
-		Timezone string                       `json:"timezone"`
-		Message  string                       `json:"message"`
-		Error    *string                      `json:"error"`
+		Data     []availability.DoctorSlotsDTO `json:"data"`
+		Timezone string                        `json:"timezone"`
+		Message  string                        `json:"message"`
+		Error    *string                       `json:"error"`
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -281,21 +302,38 @@ func (h *AppointmentHandler) HandleGetNextAvailable(w http.ResponseWriter, r *ht
 		return
 	}
 
-	var docIDPtr *uuid.UUID
+	var doctorIDs []uuid.UUID
 	if docIDStr := r.URL.Query().Get("doctor_id"); docIDStr != "" {
 		id, err := uuid.Parse(docIDStr)
 		if err == nil {
-			docIDPtr = &id
+			doctorIDs = append(doctorIDs, id)
+		}
+	} else {
+		docs, err := h.doctorSvc.List(userCtx.TenantID)
+		if err == nil {
+			for _, d := range docs {
+				doctorIDs = append(doctorIDs, d.ID)
+			}
 		}
 	}
 
-	slot, err := h.availSvc.NextAvailableSlot(userCtx.TenantID, docIDPtr)
-	if err != nil {
+	var earliest *availability.SlotDTO
+	for _, dID := range doctorIDs {
+		slot, err := h.availSvc.GetNextAvailableSlot(r.Context(), userCtx.TenantID, dID)
+		if err == nil && slot != nil {
+			if earliest == nil || slot.StartTime < earliest.StartTime { // Safe to compare RFC3339 strings
+				earliestCopy := *slot
+				earliest = &earliestCopy
+			}
+		}
+	}
+
+	if earliest == nil {
 		myhttp.RespondError(w, http.StatusNotFound, "no slots available", "NOT_FOUND", nil)
 		return
 	}
 
-	myhttp.RespondJSON(w, http.StatusOK, slot, "success")
+	myhttp.RespondJSON(w, http.StatusOK, earliest, "success")
 }
 
 // --- Private helpers ---
