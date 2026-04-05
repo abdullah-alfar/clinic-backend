@@ -127,3 +127,24 @@ func (s *PatientService) GetPatientByID(id string, tenantID uuid.UUID) (*Patient
 
 	return &p, nil
 }
+
+func (s *PatientService) DeletePatient(id uuid.UUID, tenantID uuid.UUID) error {
+	result, err := s.db.Exec(`
+		DELETE FROM patients
+		WHERE id = $1 AND tenant_id = $2
+	`, id, tenantID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return ErrPatientNotFound
+	}
+
+	return nil
+}

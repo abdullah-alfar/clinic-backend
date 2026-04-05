@@ -1,7 +1,6 @@
 package scheduling
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -28,11 +27,11 @@ func (h *SmartSchedulingHandler) SuggestSlots(w http.ResponseWriter, r *http.Req
 	}
 
 	query := r.URL.Query()
-	
+
 	// Parse parameters
 	patientIDStr := query.Get("patient_id")
 	patientID, _ := uuid.Parse(patientIDStr)
-	
+
 	doctorIDStr := query.Get("doctor_id")
 	var doctorID *uuid.UUID
 	if doctorIDStr != "" {

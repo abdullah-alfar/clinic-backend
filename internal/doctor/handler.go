@@ -24,7 +24,7 @@ func (h *DoctorHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleList(w, r)
 	case http.MethodPost:
 		h.handleCreate(w, r)
-	case http.MethodPatch:
+	case http.MethodPut:
 		h.handleUpdate(w, r)
 	case http.MethodDelete:
 		h.handleDelete(w, r)
@@ -45,13 +45,13 @@ func (h *DoctorHandler) handleList(w http.ResponseWriter, r *http.Request) {
 
 func (h *DoctorHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	userCtx, _ := shared.GetUserContext(r.Context())
-	
+
 	var d Doctor
 	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
 		myhttp.RespondError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST", err.Error())
 		return
 	}
-	
+
 	d.TenantID = userCtx.TenantID
 	if err := h.svc.Create(&d, userCtx.UserID); err != nil {
 		myhttp.RespondError(w, http.StatusInternalServerError, "failed to create doctor", "CREATION_FAILED", nil)
@@ -62,7 +62,7 @@ func (h *DoctorHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 
 func (h *DoctorHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	userCtx, _ := shared.GetUserContext(r.Context())
-	
+
 	// Extract ID from /api/v1/doctors/{id}
 	parts := strings.Split(r.URL.Path, "/")
 	idStr := parts[len(parts)-1]
@@ -91,7 +91,7 @@ func (h *DoctorHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (h *DoctorHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	userCtx, _ := shared.GetUserContext(r.Context())
-	
+
 	parts := strings.Split(r.URL.Path, "/")
 	idStr := parts[len(parts)-1]
 	id, err := uuid.Parse(idStr)

@@ -101,13 +101,13 @@ func (s *VisitService) getVisits(patientID, tenantID uuid.UUID) ([]*models.Visit
 	var visits []*models.Visit
 	for rows.Next() {
 		var v models.Visit
-		// appointment_id could be null in db. We need to handle nullable uuid. Let's use string or sql.NullString for scanning if needed, 
+		// appointment_id could be null in db. We need to handle nullable uuid. Let's use string or sql.NullString for scanning if needed,
 		// but standard google/uuid implements sql.Scanner and handles NULL by becoming uuid.Nil.
 		var apptID uuid.NullUUID
 		if err := rows.Scan(&v.ID, &v.TenantID, &v.PatientID, &apptID, &v.DoctorID, &v.Notes, &v.Diagnosis, &v.Prescription, &v.CreatedAt); err != nil {
 			return nil, err
 		}
-		v.AppointmentID = apptID.UUID
+		v.AppointmentID = &apptID.UUID
 		visits = append(visits, &v)
 	}
 	return visits, nil

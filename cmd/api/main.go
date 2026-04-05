@@ -30,7 +30,7 @@ import (
 )
 
 func main() {
-	database, err := db.NewPostgresDB("localhost", "5432", "postgres", "postgres", "clinic")
+	database, err := db.NewPostgresDB("localhost", "5432", "postgres", "root", "clinic")
 	if err != nil {
 		log.Printf("Warning: Failed to connect to DB: %v", err)
 	}
@@ -46,7 +46,7 @@ func main() {
 	authSvc := auth.NewAuthService(database)
 	tenantSvc := tenant.NewTenantService(database)
 	patientSvc := patient.NewPatientService(database, auditSvc)
-	
+
 	notifRepo := notification.NewPostgresNotificationRepository(database)
 	prefSvc := notification.NewPreferenceService(notifRepo)
 	notifDispatcher := notification.NewNotificationDispatcher(notifRepo, prefSvc, queueClient)
@@ -66,6 +66,7 @@ func main() {
 	reportSvc := report.NewReportService(database)
 	visitSvc := visit.NewVisitService(database, auditSvc)
 
+	invRepo := invoice.NewPostgresInvoiceRepository(database)
 	invSvc := invoice.NewInvoiceService(invRepo, database)
 
 	schedulingSvc := scheduling.NewSmartSchedulingService(advAvailSvc)
@@ -134,6 +135,12 @@ func main() {
 	mux.Handle("GET /api/v1/patients", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(patientHandler.HandlePatients))))
 	mux.Handle("POST /api/v1/patients", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(patientHandler.HandlePatients))))
 	mux.Handle("GET /api/v1/patients/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(patientHandler.HandlePatientByID))))
+	mux.Handle("PUT /api/v1/patients/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(patientHandler.HandleUpdatePatient))))
+	mux.Handle("DELETE /api/v1/patients/{id}",
+		myhttp.AuthMiddleware(
+			myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(patientHandler.HandleDeletePatient)),
+		),
+	)
 
 	// Visits & Timeline
 	mux.Handle("POST /api/v1/visits", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(visitHandler.HandleVisits))))
@@ -142,7 +149,7 @@ func main() {
 	// Doctors RBAC
 	mux.Handle("GET /api/v1/doctors", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(doctorHandler.ServeHTTP))))
 	mux.Handle("POST /api/v1/doctors", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(doctorHandler.ServeHTTP))))
-	mux.Handle("PATCH /api/v1/doctors/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(doctorHandler.ServeHTTP))))
+	mux.Handle("PUT /api/v1/doctors/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(doctorHandler.ServeHTTP))))
 	mux.Handle("DELETE /api/v1/doctors/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(doctorHandler.ServeHTTP))))
 
 	// ── Advanced Doctor Availability ─────────────────────────────────────────
