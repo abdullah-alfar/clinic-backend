@@ -10,6 +10,7 @@ import (
 	"clinic-backend/internal/audit"
 	"clinic-backend/internal/auth"
 	"clinic-backend/internal/availability"
+	"clinic-backend/internal/config"
 	"clinic-backend/internal/doctor"
 	"clinic-backend/internal/invoice"
 	"clinic-backend/internal/medical"
@@ -28,6 +29,7 @@ import (
 	"clinic-backend/internal/visit"
 	"clinic-backend/internal/whatsapp"
 	"clinic-backend/internal/whatsappbot"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -41,8 +43,24 @@ func main() {
 		log.Printf("Warning: Redis unavailable: %v", err)
 	}
 
-	waSender := whatsapp.NewLogWhatsAppSender()
+	if err := godotenv.Load(); err != nil {
+		log.Println(".env file not loaded, using system environment")
+	}
 
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
+	}
+
+	waSender, err := whatsapp.NewSender(whatsapp.SenderFactoryConfig{
+		Provider:         cfg.WhatsApp.Provider,
+		TwilioAccountSID: cfg.WhatsApp.TwilioAccountSID,
+		TwilioAuthToken:  cfg.WhatsApp.TwilioAuthToken,
+		TwilioFrom:       cfg.WhatsApp.TwilioFrom,
+	})
+	if err != nil {
+		log.Fatalf("failed to init whatsapp sender: %v", err)
+	}
 	auditSvc := audit.NewAuditService(database)
 	authSvc := auth.NewAuthService(database)
 	tenantSvc := tenant.NewTenantService(database)

@@ -1,37 +1,69 @@
 package whatsapp
 
 import (
-	"context"
 	"fmt"
-	"log"
+	"strings"
 )
 
-// LogWhatsAppSender is the dev/local implementation.
-// Logs messages to stdout. Never actually sends anything.
-type LogWhatsAppSender struct{}
+type Provider string
 
-func NewLogWhatsAppSender() *LogWhatsAppSender { return &LogWhatsAppSender{} }
+const (
+	ProviderLog    Provider = "log"
+	ProviderMeta   Provider = "meta"
+	ProviderTwilio Provider = "twilio"
+)
 
-func (s *LogWhatsAppSender) Send(_ context.Context, msg WhatsAppMessage) (string, error) {
-	log.Printf("[WHATSAPP] 💬 To: %s\n%s", msg.To, msg.Body)
-	return fmt.Sprintf("fake-msg-id-%s", msg.To), nil
+type SenderFactoryConfig struct {
+	Provider string
+
+	// Twilio
+	TwilioAccountSID string
+	TwilioAuthToken  string
+	TwilioFrom       string // whatsapp:+14155238886
+
+	// Meta
+	MetaPhoneNumberID string
+	MetaAccessToken   string
 }
 
-// MetaWhatsAppSender is a stub for the Meta Cloud API provider.
-// Implement when moving to production.
-// See: https://developers.facebook.com/docs/whatsapp/cloud-api
-type MetaWhatsAppSender struct {
-	PhoneNumberID string
-	AccessToken   string
-}
+func NewSender(cfg SenderFactoryConfig) (WhatsAppSender, error) {
+	provider := Provider(strings.ToLower(strings.TrimSpace(cfg.Provider)))
 
-func NewMetaWhatsAppSender(phoneNumberID, accessToken string) *MetaWhatsAppSender {
-	return &MetaWhatsAppSender{PhoneNumberID: phoneNumberID, AccessToken: accessToken}
-}
+	switch provider {
+	case "", ProviderLog:
+		return NewLogWhatsAppSender(), nil
 
-func (s *MetaWhatsAppSender) Send(_ context.Context, msg WhatsAppMessage) (string, error) {
-	// TODO: POST https://graph.facebook.com/v18.0/{PhoneNumberID}/messages
-	// with Authorization: Bearer {AccessToken}
-	log.Printf("[WHATSAPP META STUB] Would send to %s: %s", msg.To, msg.Body)
-	return "", nil
+	case ProviderTwilio:
+		if strings.TrimSpace(cfg.TwilioAccountSID) == "" {
+			return nil, fmt.Errorf("missing twilio account sid")
+		}
+		if strings.TrimSpace(cfg.TwilioAuthToken) == "" {
+			return nil, fmt.Errorf("missing twilio auth token")
+		}
+		if strings.TrimSpace(cfg.TwilioFrom) == "" {
+			return nil, fmt.Errorf("missing twilio from number")
+		}
+
+		return NewTwilioWhatsAppSender(
+			cfg.TwilioAccountSID,
+			cfg.TwilioAuthToken,
+			cfg.TwilioFrom,
+		), nil
+
+	case ProviderMeta:
+		if strings.TrimSpace(cfg.MetaPhoneNumberID) == "" {
+			return nil, fmt.Errorf("missing meta phone number id")
+		}
+		if strings.TrimSpace(cfg.MetaAccessToken) == "" {
+			return nil, fmt.Errorf("missing meta access token")
+		}
+
+		return NewMetaWhatsAppSender(
+			cfg.MetaPhoneNumberID,
+			cfg.MetaAccessToken,
+		), nil
+
+	default:
+		return nil, fmt.Errorf("unsupported whatsapp provider: %s", cfg.Provider)
+	}
 }

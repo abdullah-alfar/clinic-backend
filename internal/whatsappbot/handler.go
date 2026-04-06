@@ -1,7 +1,6 @@
 package whatsappbot
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -36,46 +35,45 @@ func (h *BotHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Verify Token
-	// Meta uses hub.verify_token for GET, but for POST we typically check a signature.
-	// We'll use a simple query param or header for MVP.
+	// Simple MVP token check
 	token := r.URL.Query().Get("token")
 	if token != h.webhookToken {
 		myhttp.RespondError(w, http.StatusUnauthorized, "unauthorized", "UNAUTHORIZED", nil)
 		return
 	}
 
-	// 2. Parse Payload
-	var req WebhookPayload
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// Twilio sends webhook payload as application/x-www-form-urlencoded, not JSON
+	if err := r.ParseForm(); err != nil {
 		myhttp.RespondError(w, http.StatusBadRequest, "invalid payload", "BAD_REQUEST", err.Error())
 		return
 	}
 
-	tenantID, err := uuid.Parse(req.TenantID)
-	if err != nil {
-		myhttp.RespondError(w, http.StatusBadRequest, "invalid tenant id", "BAD_REQUEST", nil)
+	from := r.FormValue("From")
+	body := r.FormValue("Body")
+	msgID := r.FormValue("MessageSid")
+
+	if from == "" {
+		myhttp.RespondError(w, http.StatusBadRequest, "missing from", "BAD_REQUEST", nil)
 		return
 	}
 
+	// TODO: replace this with proper tenant resolution logic
+	// Example: derive tenant from Twilio "To" number or lookup from DB
+	tenantID := uuid.MustParse("e830c33a-d04b-4888-91ed-846114eb16eb")
+
 	inbound := InboundMessage{
-		From:          req.From,
-		Body:          req.Body,
-		ProviderMsgID: req.MsgID,
+		From:          from,
+		Body:          body,
+		ProviderMsgID: msgID,
 		ReceivedAt:    time.Now(),
 	}
 
-	// 3. Process
-	// We use background context and return OK immediately to avoid provider timeouts.
-	// For MVP, we'll do it synchronously for easier debugging.
+	// Process synchronously for easier debugging in MVP
 	if err := h.svc.ProcessInbound(r.Context(), tenantID, inbound); err != nil {
-		// Log error, but still return 200 OK so provider doesn't retry
+		// Log error if you have logger, but still return 200 so Twilio doesn't retry endlessly
 		// fmt.Printf("Bot error: %v\n", err)
 	}
-
-	// Provider expects 200 OK
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	w.WriteHeader(http.StatusNoContent)
 }
 func (h *BotHandler) HandlePatientHistory(w http.ResponseWriter, r *http.Request) {
 	patientID, err := uuid.Parse(r.PathValue("id"))

@@ -42,10 +42,10 @@ func NewBotService(
 // ProcessInbound handles an incoming message from the webhook.
 func (s *BotService) ProcessInbound(ctx context.Context, tenantID uuid.UUID, msg InboundMessage) error {
 	phone, err := whatsapp.NormalizePhone(msg.From)
-	if err != nil {
-		phone = msg.From // Fallback to raw if unparseable
+	if err != nil || strings.TrimSpace(phone) == "" {
+		phone = strings.TrimSpace(msg.From)
+		phone = strings.TrimPrefix(phone, "whatsapp:")
 	}
-
 	// 1. Load or Create Session
 	session, err := s.repo.GetSession(ctx, tenantID, phone)
 	if err != nil {
@@ -58,11 +58,10 @@ func (s *BotService) ProcessInbound(ctx context.Context, tenantID uuid.UUID, msg
 			CurrentStep: "start",
 			State:       make(StateData),
 		}
-		
+
 		// Attempt to link patient
 		patID, _ := s.repo.FindPatientByPhone(ctx, tenantID, phone)
 		session.PatientID = patID
-		
 		s.repo.UpsertSession(ctx, session)
 	}
 
@@ -119,7 +118,7 @@ func (s *BotService) flowMenu(ctx context.Context, session *BotSession) Outbound
 	session.CurrentFlow = "menu"
 	session.CurrentStep = "start"
 	s.repo.UpsertSession(ctx, session)
-	
+
 	msg := "Welcome to your Clinic Assistant! 🏥\n\nHow can I help you today? Please reply with one of the following:\n\n1️⃣ Book Appointment\n2️⃣ Cancel Appointment\n3️⃣ View Next Appointment\n4️⃣ Get my Medical Reports"
 	return OutboundReply{Body: msg}
 }
@@ -379,15 +378,22 @@ func (s *BotService) GetBotStatus(ctx context.Context, tenantID, patientID uuid.
 }
 
 func (s *BotService) sendReply(ctx context.Context, session *BotSession, reply OutboundReply) {
+	to := session.PhoneNumber
+	if !strings.HasPrefix(to, "whatsapp:") {
+		to = "whatsapp:" + to
+	}
+
 	providerMsgID, err := s.sender.Send(ctx, whatsapp.WhatsAppMessage{
-		To:   session.PhoneNumber,
+		To:   to,
 		Body: reply.Body,
 	})
 
 	if err != nil {
-		fmt.Printf("Failed to send WhatsApp message: %v\n", err)
+		fmt.Printf("Failed to send WhatsApp message to %s: %v\n", to, err)
 		return
 	}
+
+	fmt.Printf("WhatsApp sent successfully to %s, providerMsgID=%s\n", to, providerMsgID)
 
 	_ = s.repo.LogMessage(ctx, session.TenantID, session.PatientID, session.PhoneNumber, "outbound", "text", reply.Body, providerMsgID)
 }
