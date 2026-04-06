@@ -28,6 +28,7 @@ import (
 	"clinic-backend/internal/scheduling"
 	"clinic-backend/internal/search"
 	"clinic-backend/internal/tenant"
+	"clinic-backend/internal/timeline"
 	"clinic-backend/internal/upload"
 	"clinic-backend/internal/visit"
 	"clinic-backend/internal/whatsapp"
@@ -157,6 +158,11 @@ func main() {
 	ppSvc := patientprofile.NewService(ppRepo)
 	ppHandler := patientprofile.NewHandler(ppSvc)
 
+	// Timeline Aggregation
+	timelineRepo := timeline.NewPostgresTimelineRepository(database)
+	timelineSvc := timeline.NewTimelineService(timelineRepo)
+	timelineHandler := timeline.NewTimelineHandler(timelineSvc)
+
 	mux := http.NewServeMux()
 
 	// Public Routes
@@ -190,7 +196,7 @@ func main() {
 
 	// Visits & Timeline
 	mux.Handle("POST /api/v1/visits", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(visitHandler.HandleVisits))))
-	mux.Handle("GET /api/v1/patients/{id}/timeline", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(visitHandler.HandlePatientTimeline))))
+	mux.Handle("GET /api/v1/patients/{id}/timeline", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(timelineHandler.HandlePatientTimeline))))
 
 	// Medical Records
 	mux.Handle("GET /api/v1/patients/{id}/medical-records", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor", "receptionist")(http.HandlerFunc(medicalHandler.ListRecords))))
