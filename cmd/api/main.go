@@ -12,6 +12,7 @@ import (
 	"clinic-backend/internal/availability"
 	"clinic-backend/internal/config"
 	"clinic-backend/internal/doctor"
+	"clinic-backend/internal/doctor_dashboard"
 	"clinic-backend/internal/invoice"
 	"clinic-backend/internal/medical"
 	"clinic-backend/internal/notification"
@@ -139,6 +140,11 @@ func main() {
 	searchHandler := search.NewSearchHandler(searchSvc)
 	botHandler := whatsappbot.NewBotHandler(botSvc, "dev_secret")
 
+	// Doctor Dashboard Initialization
+	dashRepo := doctor_dashboard.NewRepository(database)
+	dashSvc := doctor_dashboard.NewService(dashRepo)
+	dashHandler := doctor_dashboard.NewHandler(dashSvc)
+
 	mux := http.NewServeMux()
 
 	// Public Routes
@@ -154,6 +160,9 @@ func main() {
 
 	// Protected Auth Route
 	mux.Handle("GET /api/v1/auth/me", myhttp.AuthMiddleware(http.HandlerFunc(authHandler.HandleMe)))
+
+	// Doctor Dashboard Route
+	mux.Handle("GET /api/v1/doctor-dashboard", myhttp.AuthMiddleware(http.HandlerFunc(dashHandler.GetDashboard)))
 
 	// Patients RBAC
 	mux.Handle("GET /api/v1/patients", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(patientHandler.HandlePatients))))
