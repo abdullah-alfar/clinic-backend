@@ -12,6 +12,7 @@ import (
 	"clinic-backend/internal/availability"
 	"clinic-backend/internal/doctor"
 	"clinic-backend/internal/invoice"
+	"clinic-backend/internal/medical"
 	"clinic-backend/internal/notification"
 	"clinic-backend/internal/patient"
 	"clinic-backend/internal/platform/db"
@@ -64,7 +65,11 @@ func main() {
 
 	notifSvc := notification.NewNotificationService(database)
 	reportSvc := report.NewReportService(database)
-	visitSvc := visit.NewVisitService(database, auditSvc)
+
+	medicalRepo := medical.NewMedicalRepository(database)
+	medicalSvc := medical.NewMedicalService(medicalRepo, auditSvc)
+
+	visitSvc := visit.NewVisitService(database, auditSvc, medicalSvc)
 
 	invRepo := invoice.NewPostgresInvoiceRepository(database)
 	invSvc := invoice.NewInvoiceService(invRepo, database)
@@ -109,6 +114,7 @@ func main() {
 	reportHandler := report.NewReportHandler(reportSvc)
 	visitHandler := visit.NewVisitHandler(visitSvc)
 	invHandler := invoice.NewInvoiceHandler(invSvc)
+	medicalHandler := medical.NewMedicalHandler(medicalSvc)
 
 	attHandler := attachment.NewAttachmentHandler(attSvc)
 	aiHandler := reportai.NewReportAIHandler(aiSvc, attRepo)
@@ -145,6 +151,13 @@ func main() {
 	// Visits & Timeline
 	mux.Handle("POST /api/v1/visits", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(visitHandler.HandleVisits))))
 	mux.Handle("GET /api/v1/patients/{id}/timeline", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(visitHandler.HandlePatientTimeline))))
+
+	// Medical Records
+	mux.Handle("GET /api/v1/patients/{id}/medical-records", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor", "receptionist")(http.HandlerFunc(medicalHandler.ListRecords))))
+	mux.Handle("POST /api/v1/patients/{id}/medical-records", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(medicalHandler.CreateRecord))))
+	mux.Handle("GET /api/v1/medical-records/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor", "receptionist")(http.HandlerFunc(medicalHandler.GetRecord))))
+	mux.Handle("PATCH /api/v1/medical-records/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(medicalHandler.UpdateRecord))))
+	mux.Handle("DELETE /api/v1/medical-records/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(medicalHandler.DeleteRecord))))
 
 	// Doctors RBAC
 	mux.Handle("GET /api/v1/doctors", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(doctorHandler.ServeHTTP))))

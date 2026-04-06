@@ -5,23 +5,26 @@ import (
 	"time"
 
 	"clinic-backend/internal/audit"
+	"clinic-backend/internal/medical"
 	"clinic-backend/internal/models"
 	"github.com/google/uuid"
 )
 
 type TimelineResponse struct {
-	Appointments []*models.Appointment `json:"appointments"`
-	Visits       []*models.Visit       `json:"visits"`
-	Notes        []*models.Visit       `json:"notes"` // The prompt requested "notes" individually, we'll map visits to notes or just return visits.
+	Appointments   []*models.Appointment            `json:"appointments"`
+	Visits         []*models.Visit                  `json:"visits"`
+	Notes          []*models.Visit                  `json:"notes"`
+	MedicalRecords []*medical.MedicalRecordResponse `json:"medical_records"`
 }
 
 type VisitService struct {
-	db    *sql.DB
-	audit *audit.AuditService
+	db         *sql.DB
+	audit      *audit.AuditService
+	medicalSvc *medical.MedicalService
 }
 
-func NewVisitService(db *sql.DB, audit *audit.AuditService) *VisitService {
-	return &VisitService{db: db, audit: audit}
+func NewVisitService(db *sql.DB, audit *audit.AuditService, medicalSvc *medical.MedicalService) *VisitService {
+	return &VisitService{db: db, audit: audit, medicalSvc: medicalSvc}
 }
 
 func (s *VisitService) CreateVisit(v *models.Visit, actorID uuid.UUID) error {
@@ -56,10 +59,16 @@ func (s *VisitService) GetPatientTimeline(patientID string, tenantID uuid.UUID) 
 		return nil, err
 	}
 
+	medRecords, err := s.medicalSvc.ListRecordsByPatient(tenantID, pID)
+	if err != nil {
+		medRecords = []*medical.MedicalRecordResponse{} // safe fallback
+	}
+
 	return &TimelineResponse{
-		Appointments: appts,
-		Visits:       visits,
-		Notes:        visits, // Satisfying the explicit "notes" return requirement
+		Appointments:   appts,
+		Visits:         visits,
+		Notes:          visits,
+		MedicalRecords: medRecords,
 	}, nil
 }
 
