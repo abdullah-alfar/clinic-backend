@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -15,6 +16,25 @@ type BotRepository interface {
 	UpsertSession(ctx context.Context, s *BotSession) error
 	LogMessage(ctx context.Context, tenantID uuid.UUID, patientID *uuid.UUID, phone, direction, msgType, content, providerID string) error
 	FindPatientByPhone(ctx context.Context, tenantID uuid.UUID, phone string) (*uuid.UUID, error)
+	GetPatientMessages(ctx context.Context, tenantID, patientID uuid.UUID) ([]whatsapp_message_model, error)
+	GetBotStatus(ctx context.Context, tenantID, patientID uuid.UUID) (*BotStatusDTO, error)
+}
+
+type whatsapp_message_model struct {
+	ID                uuid.UUID
+	Direction         string
+	PhoneNumber       string
+	MessageType       string
+	Content           string
+	ProviderMessageID sql.NullString
+	CreatedAt         time.Time
+}
+
+type BotStatusDTO struct {
+	IsReady         bool
+	PhoneNumber     sql.NullString
+	LastInteraction sql.NullTime
+	OptInStatus     bool
 }
 
 type postgresBotRepository struct {
@@ -97,4 +117,47 @@ func (r *postgresBotRepository) FindPatientByPhone(ctx context.Context, tenantID
 		return nil, err
 	}
 	return &id, nil
+}
+func (r *postgresBotRepository) GetPatientMessages(ctx context.Context, tenantID, patientID uuid.UUID) ([]whatsapp_message_model, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, direction, phone_number, message_type, content, provider_message_id, created_at
+		FROM whatsapp_messages
+		WHERE tenant_id = $1 AND patient_id = $2
+		ORDER BY created_at DESC
+		LIMIT 50
+	`, tenantID, patientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []whatsapp_message_model
+	for rows.Next() {
+		var m whatsapp_message_model
+		if err := rows.Scan(&m.ID, &m.Direction, &m.PhoneNumber, &m.MessageType, &m.Content, &m.ProviderMessageID, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs, nil
+}
+
+func (r *postgresBotRepository) GetBotStatus(ctx context.Context, tenantID, patientID uuid.UUID) (*BotStatusDTO, error) {
+	var status BotStatusDTO
+	err := r.db.QueryRowContext(ctx, `
+		SELECT 
+			p.phone IS NOT NULL as is_ready,
+			p.phone,
+			s.last_message_at,
+			COALESCE(pref.whatsapp_enabled, false) as opt_in_status
+		FROM patients p
+		LEFT JOIN whatsapp_bot_sessions s ON s.patient_id = p.id AND s.tenant_id = p.tenant_id
+		LEFT JOIN patient_notification_preferences pref ON pref.patient_id = p.id AND pref.tenant_id = p.tenant_id
+		WHERE p.tenant_id = $1 AND p.id = $2
+	`, tenantID, patientID).Scan(&status.IsReady, &status.PhoneNumber, &status.LastInteraction, &status.OptInStatus)
+	
+	if err != nil {
+		return nil, err
+	}
+	return &status, nil
 }

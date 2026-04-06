@@ -61,7 +61,7 @@ func main() {
 	doctorSvc := doctor.NewDoctorService(database, auditSvc)
 
 	botRepo := whatsappbot.NewPostgresBotRepository(database)
-	botSvc := whatsappbot.NewBotService(botRepo, waSender, apptSvc)
+	botSvc := whatsappbot.NewBotService(botRepo, waSender, apptSvc, advAvailSvc, doctorSvc)
 
 	notifSvc := notification.NewNotificationService(database)
 	reportSvc := report.NewReportService(database)
@@ -212,12 +212,14 @@ func main() {
 	mux.Handle("POST /api/v1/uploads", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(uploadHandler.HandleUpload))))
 	mux.Handle("GET /uploads/{tenant_id}/{file}", myhttp.AuthMiddleware(http.HandlerFunc(uploadHandler.HandleStatic)))
 
-	// Notifications
+	// Notifications & WhatsApp Bot
 	mux.Handle("GET /api/v1/notifications", myhttp.AuthMiddleware(http.HandlerFunc(notifHandler.HandleList)))
 	mux.Handle("PATCH /api/v1/notifications/{id}/read", myhttp.AuthMiddleware(http.HandlerFunc(notifHandler.HandleRead)))
 	mux.Handle("GET /api/v1/patients/{id}/notifications", myhttp.AuthMiddleware(http.HandlerFunc(notifHandler.HandlePatientHistory)))
 	mux.Handle("GET /api/v1/patients/{id}/notification-preferences", myhttp.AuthMiddleware(http.HandlerFunc(notifHandler.HandleGetPreferences)))
 	mux.Handle("PUT /api/v1/patients/{id}/notification-preferences", myhttp.AuthMiddleware(http.HandlerFunc(notifHandler.HandleUpdatePreferences)))
+	mux.Handle("GET /api/v1/patients/{id}/whatsapp/history", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor", "receptionist")(http.HandlerFunc(botHandler.HandlePatientHistory))))
+	mux.Handle("GET /api/v1/patients/{id}/whatsapp/status", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor", "receptionist")(http.HandlerFunc(botHandler.HandleBotStatus))))
 
 	// Attachments
 	mux.Handle("POST /api/v1/patients/{id}/attachments", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(attHandler.HandleUploadAttachment))))

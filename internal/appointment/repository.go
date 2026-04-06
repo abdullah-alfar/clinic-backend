@@ -42,6 +42,8 @@ type AppointmentRepository interface {
 	GetCalendarAppointments(tenantID uuid.UUID, doctorIDs []uuid.UUID, start, end time.Time) ([]CalendarAppointment, error)
 	GetTenantTimezone(tenantID uuid.UUID) (string, error)
 	GetNotificationData(tenantID, patientID, doctorID uuid.UUID) (NotificationData, error)
+	GetNextUpcomingAppointment(tenantID, patientID uuid.UUID) (*CalendarAppointment, error)
+	GetLastDoctorIDForPatient(tenantID, patientID uuid.UUID) (*uuid.UUID, error)
 }
 
 type postgresAppointmentRepository struct {
@@ -259,4 +261,55 @@ func (r *postgresAppointmentRepository) GetNotificationData(tenantID, patientID,
 		&d.DoctorName, &d.ClinicName, &d.Timezone,
 	)
 	return d, err
+}
+func (r *postgresAppointmentRepository) GetNextUpcomingAppointment(tenantID, patientID uuid.UUID) (*CalendarAppointment, error) {
+	query := `
+		SELECT
+			a.id,
+			a.tenant_id,
+			a.patient_id,
+			COALESCE(p.first_name || ' ' || p.last_name, 'Unknown Patient') AS patient_name,
+			a.doctor_id,
+			COALESCE(d.full_name, 'Unknown Doctor') AS doctor_name,
+			a.status,
+			a.start_time,
+			a.end_time,
+			a.reason
+		FROM appointments a
+		LEFT JOIN patients p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
+		LEFT JOIN doctors d ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id
+		WHERE a.tenant_id = $1 AND a.patient_id = $2
+		AND a.status != 'canceled'
+		AND a.start_time > NOW()
+		ORDER BY a.start_time ASC
+		LIMIT 1
+	`
+	var a CalendarAppointment
+	err := r.db.QueryRow(query, tenantID, patientID).Scan(
+		&a.ID, &a.TenantID,
+		&a.PatientID, &a.PatientName,
+		&a.DoctorID, &a.DoctorName,
+		&a.Status, &a.StartTime, &a.EndTime,
+		&a.Reason,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (r *postgresAppointmentRepository) GetLastDoctorIDForPatient(tenantID, patientID uuid.UUID) (*uuid.UUID, error) {
+	var doctorID uuid.UUID
+	err := r.db.QueryRow(`
+		SELECT doctor_id FROM appointments 
+		WHERE tenant_id = $1 AND patient_id = $2 
+		ORDER BY start_time DESC LIMIT 1
+	`, tenantID, patientID).Scan(&doctorID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &doctorID, nil
 }

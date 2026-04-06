@@ -6,6 +6,7 @@ import (
 	"time"
 
 	myhttp "clinic-backend/internal/platform/http"
+	"clinic-backend/internal/shared"
 
 	"github.com/google/uuid"
 )
@@ -75,4 +76,47 @@ func (h *BotHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	// Provider expects 200 OK
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
+}
+func (h *BotHandler) HandlePatientHistory(w http.ResponseWriter, r *http.Request) {
+	patientID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		myhttp.RespondError(w, http.StatusBadRequest, "invalid patient id", "BAD_REQUEST", nil)
+		return
+	}
+
+	uctx, ok := shared.GetUserContext(r.Context())
+	if !ok {
+		myhttp.RespondError(w, http.StatusUnauthorized, "unauthorized", "UNAUTHORIZED", nil)
+		return
+	}
+
+	history, err := h.svc.GetPatientHistory(r.Context(), uctx.TenantID, patientID)
+	if err != nil {
+		myhttp.RespondError(w, http.StatusInternalServerError, "failed to fetch history", "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	myhttp.RespondJSON(w, http.StatusOK, history, "History fetched successfully")
+}
+
+func (h *BotHandler) HandleBotStatus(w http.ResponseWriter, r *http.Request) {
+	patientID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		myhttp.RespondError(w, http.StatusBadRequest, "invalid patient id", "BAD_REQUEST", nil)
+		return
+	}
+
+	uctx, ok := shared.GetUserContext(r.Context())
+	if !ok {
+		myhttp.RespondError(w, http.StatusUnauthorized, "unauthorized", "UNAUTHORIZED", nil)
+		return
+	}
+
+	status, err := h.svc.GetBotStatus(r.Context(), uctx.TenantID, patientID)
+	if err != nil {
+		myhttp.RespondError(w, http.StatusInternalServerError, "failed to fetch status", "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	myhttp.RespondJSON(w, http.StatusOK, status, "Status fetched successfully")
 }

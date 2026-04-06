@@ -127,6 +127,11 @@ func (s *AppointmentService) ScheduleAppointment(tenantID, patientID, doctorID u
 		return nil, ErrDoubleBooking
 	}
 
+	var cb *uuid.UUID
+	if createdBy != uuid.Nil {
+		cb = &createdBy
+	}
+
 	appt := &Appointment{
 		ID:        uuid.New(),
 		TenantID:  tenantID,
@@ -135,7 +140,7 @@ func (s *AppointmentService) ScheduleAppointment(tenantID, patientID, doctorID u
 		Status:    "scheduled",
 		StartTime: start,
 		EndTime:   end,
-		CreatedBy: &createdBy,
+		CreatedBy: cb,
 	}
 
 	if err := s.repo.CreateAppointment(appt); err != nil {
@@ -295,6 +300,15 @@ func (s *AppointmentService) GetCalendarAppointments(tenantID uuid.UUID, params 
 
 	return appointments, tz, nil
 }
+
+func (s *AppointmentService) GetNextUpcomingAppointment(tenantID, patientID uuid.UUID) (*CalendarAppointment, error) {
+	return s.repo.GetNextUpcomingAppointment(tenantID, patientID)
+}
+
+func (s *AppointmentService) GetLastDoctorIDForPatient(tenantID, patientID uuid.UUID) (*uuid.UUID, error) {
+	return s.repo.GetLastDoctorIDForPatient(tenantID, patientID)
+}
+
 
 func isValidTransition(current, next string) bool {
 	switch current {
