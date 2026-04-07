@@ -37,3 +37,13 @@ type MedicalMedication struct {
 	Notes           *string   `json:"notes"`
 	CreatedAt       time.Time `json:"created_at"`
 }
+
+type MedicalRecordProcedure struct {
+	ID                 uuid.UUID  `json:"id"`
+	TenantID           uuid.UUID  `json:"tenant_id"`
+	MedicalRecordID    uuid.UUID  `json:"medical_record_id"`
+	ProcedureCatalogID uuid.UUID  `json:"procedure_catalog_id"`
+	PerformedBy        *uuid.UUID `json:"performed_by,omitempty"`
+	Notes              *string    `json:"notes,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+}

@@ -64,6 +64,40 @@ func (r *MedicalRepository) CreateMedication(tx *sql.Tx, m *MedicalMedication) e
 	return err
 }
 
+func (r *MedicalRepository) CreateProcedureRecord(tx *sql.Tx, rec *MedicalRecordProcedure) error {
+	rec.ID = uuid.New()
+	rec.CreatedAt = time.Now()
+
+	_, err := tx.Exec(`
+		INSERT INTO medical_record_procedures (id, tenant_id, medical_record_id, procedure_catalog_id, performed_by, notes, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, rec.ID, rec.TenantID, rec.MedicalRecordID, rec.ProcedureCatalogID, rec.PerformedBy, rec.Notes, rec.CreatedAt)
+	return err
+}
+
+func (r *MedicalRepository) GetProceduresByRecordID(recordID uuid.UUID) ([]*MedicalRecordProcedure, error) {
+	rows, err := r.db.Query(`
+		SELECT id, tenant_id, medical_record_id, procedure_catalog_id, performed_by, notes, created_at
+		FROM medical_record_procedures
+		WHERE medical_record_id = $1
+		ORDER BY created_at ASC
+	`, recordID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var procs []*MedicalRecordProcedure
+	for rows.Next() {
+		var p MedicalRecordProcedure
+		if err := rows.Scan(&p.ID, &p.TenantID, &p.MedicalRecordID, &p.ProcedureCatalogID, &p.PerformedBy, &p.Notes, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		procs = append(procs, &p)
+	}
+	return procs, nil
+}
+
 func (r *MedicalRepository) GetRecordByID(tenantID, id uuid.UUID) (*MedicalRecord, error) {
 	var rec MedicalRecord
 	err := r.db.QueryRow(`

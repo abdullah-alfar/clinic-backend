@@ -14,13 +14,16 @@ import (
 	"clinic-backend/internal/doctor"
 	"clinic-backend/internal/ai_core"
 	"clinic-backend/internal/doctor_dashboard"
+	"clinic-backend/internal/inventory"
 	"clinic-backend/internal/invoice"
 	"clinic-backend/internal/medical"
 	"clinic-backend/internal/notification"
+	"clinic-backend/internal/ops_intelligence"
 	"clinic-backend/internal/patient"
 	"clinic-backend/internal/patientprofile"
 	"clinic-backend/internal/platform/db"
 	myhttp "clinic-backend/internal/platform/http"
+	"clinic-backend/internal/procedurecatalog"
 	"clinic-backend/internal/queue"
 	"clinic-backend/internal/recurrence"
 	"clinic-backend/internal/rating"
@@ -36,7 +39,6 @@ import (
 	"clinic-backend/internal/followup"
 	"clinic-backend/internal/whatsapp"
 	"clinic-backend/internal/whatsappbot"
-	"clinic-backend/internal/ops_intelligence"
 	"github.com/joho/godotenv"
 	"time"
 )
@@ -90,13 +92,21 @@ func main() {
 	notifSvc := notification.NewNotificationService(database)
 	reportSvc := report.NewReportService(database)
 
+	inventoryRepo := inventory.NewPostgresRepository(database)
+	inventorySvc := inventory.NewService(inventoryRepo)
+	inventoryHandler := inventory.NewHandler(inventorySvc)
+
+	procRepo := procedurecatalog.NewPostgresRepository(database)
+	procSvc := procedurecatalog.NewService(procRepo)
+	procHandler := procedurecatalog.NewHandler(procSvc)
+
 	medicalRepo := medical.NewMedicalRepository(database)
-	medicalSvc := medical.NewMedicalService(medicalRepo, auditSvc)
+	medicalSvc := medical.NewMedicalService(medicalRepo, auditSvc, inventoryRepo, procRepo)
 
 	visitSvc := visit.NewVisitService(database, auditSvc, medicalSvc)
 
-	invRepo := invoice.NewPostgresInvoiceRepository(database)
-	invSvc := invoice.NewInvoiceService(invRepo, database)
+	invoiceRepo := invoice.NewPostgresInvoiceRepository(database)
+	invoiceSvc := invoice.NewInvoiceService(invoiceRepo, database)
 
 	schedulingSvc := scheduling.NewSmartSchedulingService(advAvailSvc)
 	schedulingHandler := scheduling.NewSmartSchedulingHandler(schedulingSvc)
@@ -164,7 +174,7 @@ func main() {
 	notifHandler := notification.NewNotificationHandler(notifSvc, notifRepo, prefSvc)
 	reportHandler := report.NewReportHandler(reportSvc)
 	visitHandler := visit.NewVisitHandler(visitSvc)
-	invHandler := invoice.NewInvoiceHandler(invSvc)
+	invoiceHandler := invoice.NewInvoiceHandler(invoiceSvc)
 	medicalHandler := medical.NewMedicalHandler(medicalSvc)
 
 	attHandler := attachment.NewAttachmentHandler(attSvc)
@@ -243,6 +253,7 @@ func main() {
 	mux.Handle("GET /api/v1/medical-records/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor", "receptionist")(http.HandlerFunc(medicalHandler.GetRecord))))
 	mux.Handle("PATCH /api/v1/medical-records/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(medicalHandler.UpdateRecord))))
 	mux.Handle("DELETE /api/v1/medical-records/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(medicalHandler.DeleteRecord))))
+	mux.Handle("POST /api/v1/medical-records/{id}/procedures", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(http.HandlerFunc(medicalHandler.HandleAddProcedure))))
 
 	// Doctors RBAC
 	mux.Handle("GET /api/v1/doctors", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(doctorHandler.ServeHTTP))))
@@ -344,9 +355,23 @@ func main() {
 	mux.Handle("GET /api/v1/reports/patients", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(reportHandler.HandlePatientsReport))))
 
 	// Invoices
-	mux.Handle("POST /api/v1/invoices", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(invHandler.HandleCreate))))
-	mux.Handle("GET /api/v1/patients/{id}/invoices", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(invHandler.HandleListPatientInvoices))))
-	mux.Handle("PATCH /api/v1/invoices/{id}/pay", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(invHandler.HandleMarkPaid))))
+	mux.Handle("POST /api/v1/invoices", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(invoiceHandler.HandleCreate))))
+	mux.Handle("GET /api/v1/patients/{id}/invoices", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(invoiceHandler.HandleListPatientInvoices))))
+	mux.Handle("PATCH /api/v1/invoices/{id}/pay", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(invoiceHandler.HandleMarkPaid))))
+
+	// Inventory
+	mux.Handle("GET /api/v1/inventory/items", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(inventoryHandler.HandleListItems))))
+	mux.Handle("GET /api/v1/inventory/items/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(inventoryHandler.HandleGetItem))))
+	mux.Handle("POST /api/v1/inventory/items", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(inventoryHandler.HandleCreateItem))))
+	mux.Handle("PATCH /api/v1/inventory/items/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(inventoryHandler.HandleUpdateItem))))
+	mux.Handle("POST /api/v1/inventory/items/{id}/adjust", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(inventoryHandler.HandleAdjustStock))))
+	mux.Handle("GET /api/v1/inventory/items/{id}/movements", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(inventoryHandler.HandleListMovements))))
+
+	// Procedure Catalog
+	mux.Handle("GET /api/v1/procedures", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(procHandler.HandleListProcedures))))
+	mux.Handle("GET /api/v1/procedures/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(procHandler.HandleGetProcedure))))
+	mux.Handle("POST /api/v1/procedures", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(procHandler.HandleCreateProcedure))))
+	mux.Handle("PATCH /api/v1/procedures/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin")(http.HandlerFunc(procHandler.HandleUpdateProcedure))))
 
 	// Ratings
 	mux.Handle("POST /api/v1/appointments/{id}/rating", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "patient")(http.HandlerFunc(ratingHandler.HandleSubmitRating))))

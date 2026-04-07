@@ -144,6 +144,27 @@ func (h *MedicalHandler) DeleteRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	recordID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		myhttp.RespondError(w, http.StatusBadRequest, "invalid record id", "BAD_REQUEST", err.Error())
+		return
+	}
+
+	if err := h.svc.DeleteRecord(userCtx.TenantID, userCtx.UserID, recordID); err != nil {
+		myhttp.RespondError(w, http.StatusInternalServerError, "failed to delete record", "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	myhttp.RespondJSON(w, http.StatusOK, nil, "medical record deleted")
+}
+
+func (h *MedicalHandler) HandleAddProcedure(w http.ResponseWriter, r *http.Request) {
+	userCtx, ok := shared.GetUserContext(r.Context())
+	if !ok {
+		myhttp.RespondError(w, http.StatusUnauthorized, "unauthorized", "UNAUTHORIZED", nil)
+		return
+	}
+
 	recordIDRaw := r.PathValue("id")
 	recordID, err := uuid.Parse(recordIDRaw)
 	if err != nil {
@@ -151,11 +172,17 @@ func (h *MedicalHandler) DeleteRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.svc.DeleteRecord(userCtx.TenantID, userCtx.UserID, recordID)
-	if err != nil {
-		myhttp.RespondError(w, http.StatusInternalServerError, "failed to delete record", "INTERNAL_ERROR", err.Error())
+	var req AddProcedureReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		myhttp.RespondError(w, http.StatusBadRequest, "invalid payload", "BAD_REQUEST", err.Error())
 		return
 	}
 
-	myhttp.RespondJSON(w, http.StatusOK, nil, "medical record deleted")
+	procRecord, err := h.svc.AddProcedureToRecord(r.Context(), userCtx.TenantID, userCtx.UserID, recordID, req)
+	if err != nil {
+		myhttp.RespondError(w, http.StatusInternalServerError, "failed to add procedure", "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	myhttp.RespondJSON(w, http.StatusCreated, procRecord, "medical procedure added")
 }

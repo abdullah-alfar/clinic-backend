@@ -1,10 +1,13 @@
 package medical
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 
 	"clinic-backend/internal/audit"
+	"clinic-backend/internal/inventory"
+	"clinic-backend/internal/procedurecatalog"
 	"github.com/google/uuid"
 )
 
@@ -13,12 +16,14 @@ var (
 )
 
 type MedicalService struct {
-	repo  *MedicalRepository
-	audit *audit.AuditService
+	repo         *MedicalRepository
+	audit        *audit.AuditService
+	inventoryRepo inventory.Repository
+	procRepo      procedurecatalog.Repository
 }
 
-func NewMedicalService(repo *MedicalRepository, audit *audit.AuditService) *MedicalService {
-	return &MedicalService{repo: repo, audit: audit}
+func NewMedicalService(repo *MedicalRepository, audit *audit.AuditService, invRepo inventory.Repository, procRepo procedurecatalog.Repository) *MedicalService {
+	return &MedicalService{repo: repo, audit: audit, inventoryRepo: invRepo, procRepo: procRepo}
 }
 
 func (s *MedicalService) CreateRecord(tenantID, doctorID, patientID uuid.UUID, req CreateMedicalRecordRequest) (*MedicalRecordResponse, error) {
@@ -101,10 +106,16 @@ func (s *MedicalService) GetRecord(tenantID, recordID uuid.UUID) (*MedicalRecord
 		return nil, err
 	}
 
+	procs, err := s.repo.GetProceduresByRecordID(recordID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &MedicalRecordResponse{
 		Record:      rec,
 		Vitals:      vitals,
 		Medications: meds,
+		Procedures:  procs,
 	}, nil
 }
 
@@ -118,11 +129,13 @@ func (s *MedicalService) ListRecordsByPatient(tenantID, patientID uuid.UUID) ([]
 	for _, rec := range records {
 		vitals, _ := s.repo.GetVitalsByRecordID(rec.ID)
 		meds, _ := s.repo.GetMedicationsByRecordID(rec.ID)
+		procs, _ := s.repo.GetProceduresByRecordID(rec.ID)
 
 		responses = append(responses, &MedicalRecordResponse{
 			Record:      rec,
 			Vitals:      vitals,
 			Medications: meds,
+			Procedures:  procs,
 		})
 	}
 
@@ -210,4 +223,55 @@ func (s *MedicalService) DeleteRecord(tenantID, doctorID, recordID uuid.UUID) er
 		s.audit.LogAction(tenantID, doctorID, "DELETE_MEDICAL_RECORD", "medical_records", recordID, nil)
 	}
 	return err
+}
+
+func (s *MedicalService) AddProcedureToRecord(ctx context.Context, tenantID, doctorID, recordID uuid.UUID, req AddProcedureReq) (*MedicalRecordProcedure, error) {
+	// Verify record exists and belongs to tenant
+	_, err := s.repo.GetRecordByID(tenantID, recordID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch procedure catalog template
+	procTemplate, err := s.procRepo.GetProcedureByID(ctx, tenantID, req.ProcedureCatalogID)
+	if err != nil {
+		return nil, errors.New("procedure catalog template not found")
+	}
+
+	procRecord := &MedicalRecordProcedure{
+		TenantID:           tenantID,
+		MedicalRecordID:    recordID,
+		ProcedureCatalogID: req.ProcedureCatalogID,
+		PerformedBy:        &doctorID,
+		Notes:              req.Notes,
+	}
+
+	err = s.repo.RunInTransaction(func(tx *sql.Tx) error {
+		// 1. Create the procedure record
+		if err := s.repo.CreateProcedureRecord(tx, procRecord); err != nil {
+			return err
+		}
+
+		// 2. Deduct inventory items
+		for _, item := range procTemplate.Items {
+			reason := "Procedure: " + procTemplate.Name
+			// We use AdjustStockTx directly from the inventory repo to participate in the same TX if we wanted to
+			// Wait, the inventory repo's AdjustStockTx requires *sql.Tx. We CAN pass it if we share the DB connection.
+			// Since we use `s.repo.RunInTransaction` which uses the same db.Begin(), we can pass `tx`.
+			err := s.inventoryRepo.AdjustStockTx(ctx, tx, tenantID, item.InventoryItemID, "out", item.Quantity, &reason, nil, &recordID, &doctorID)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	s.audit.LogAction(tenantID, doctorID, "ADD_PROCEDURE_TO_RECORD", "medical_record_procedures", procRecord.ID, procRecord)
+
+	return procRecord, nil
 }

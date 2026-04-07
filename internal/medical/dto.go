@@ -12,6 +12,11 @@ type CreateMedicalRecordRequest struct {
 	Medications   []CreateMedicalMedicationRequest `json:"medications"`
 }
 
+type AddProcedureReq struct {
+	ProcedureCatalogID uuid.UUID `json:"procedure_catalog_id"`
+	Notes              *string   `json:"notes"`
+}
+
 type UpdateMedicalRecordRequest struct {
 	AppointmentID *uuid.UUID                       `json:"appointment_id"`
 	Diagnosis     *string                          `json:"diagnosis"`
@@ -35,7 +40,8 @@ type CreateMedicalMedicationRequest struct {
 }
 
 type MedicalRecordResponse struct {
-	Record      *MedicalRecord       `json:"record"`
-	Vitals      []*MedicalVital      `json:"vitals"`
-	Medications []*MedicalMedication `json:"medications"`
+	Record      *MedicalRecord            `json:"record"`
+	Vitals      []*MedicalVital           `json:"vitals"`
+	Medications []*MedicalMedication      `json:"medications"`
+	Procedures  []*MedicalRecordProcedure `json:"procedures"`
 }
