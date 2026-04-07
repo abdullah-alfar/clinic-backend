@@ -33,6 +33,27 @@ type RescheduleRequest struct {
 	EndTime   time.Time `json:"end_time"`
 }
 
+// AppointmentDetailDTO is use for the single appointment detail endpoint.
+type AppointmentDetailDTO struct {
+	ID          string  `json:"id"`
+	PatientID   string  `json:"patient_id"`
+	PatientName string  `json:"patient_name"`
+	DoctorID    string  `json:"doctor_id"`
+	DoctorName  string  `json:"doctor_name"`
+	Status      string  `json:"status"`
+	StartTime   string  `json:"start_time"`
+	EndTime     string  `json:"end_time"`
+	Reason      *string `json:"reason"`
+	Notes       string  `json:"notes"`
+}
+
+// AppointmentDetailResponse is the response wrapper for single appointment detail.
+type AppointmentDetailResponse struct {
+	Data    AppointmentDetailDTO `json:"data"`
+	Message string               `json:"message"`
+	Error   *string              `json:"error"`
+}
+
 // CalendarResponse is the top-level envelope returned by HandleGetCalendar.
 type CalendarResponse struct {
 	Data     []CalendarAppointmentDTO `json:"data"`

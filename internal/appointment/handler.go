@@ -134,6 +134,42 @@ func (h *AppointmentHandler) HandleReschedule(w http.ResponseWriter, r *http.Req
 	myhttp.RespondJSON(w, http.StatusOK, nil, "appointment rescheduled successfully")
 }
 
+func (h *AppointmentHandler) HandleGetByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		myhttp.RespondError(w, http.StatusMethodNotAllowed, "method not allowed", "INVALID_METHOD", nil)
+		return
+	}
+
+	userCtx, ok := shared.GetUserContext(r.Context())
+	if !ok {
+		myhttp.RespondError(w, http.StatusUnauthorized, "unauthorized", "UNAUTHORIZED", nil)
+		return
+	}
+
+	apptID, err := parsePathID(r.URL.Path, 4)
+	if err != nil {
+		myhttp.RespondError(w, http.StatusBadRequest, "invalid appointment id", "BAD_REQUEST", nil)
+		return
+	}
+
+	detail, err := h.svc.GetAppointmentDetail(userCtx.TenantID, apptID)
+	if err != nil {
+		if err == ErrNotFound {
+			myhttp.RespondError(w, http.StatusNotFound, "appointment not found", "NOT_FOUND", nil)
+		} else {
+			myhttp.RespondError(w, http.StatusInternalServerError, "failed to fetch appointment", "INTERNAL_ERROR", nil)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(AppointmentDetailResponse{
+		Data:    *detail,
+		Message: "success",
+		Error:   nil,
+	})
+}
+
 // HandleGetCalendar serves GET /appointments/calendar.
 // Returns enriched appointments (with patient and doctor names) for a date range.
 func (h *AppointmentHandler) HandleGetCalendar(w http.ResponseWriter, r *http.Request) {

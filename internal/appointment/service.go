@@ -301,6 +301,25 @@ func (s *AppointmentService) GetCalendarAppointments(tenantID uuid.UUID, params 
 	return appointments, tz, nil
 }
 
+func (s *AppointmentService) GetAppointmentDetail(tenantID, apptID uuid.UUID) (*AppointmentDetailDTO, error) {
+	enriched, err := s.repo.GetEnrichedAppointmentByID(tenantID, apptID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+
+	return &AppointmentDetailDTO{
+		ID:          enriched.ID.String(),
+		PatientID:   enriched.PatientID.String(),
+		PatientName: enriched.PatientName,
+		DoctorID:    enriched.DoctorID.String(),
+		DoctorName:  enriched.DoctorName,
+		Status:      enriched.Status,
+		StartTime:   enriched.StartTime.Format(time.RFC3339),
+		EndTime:     enriched.EndTime.Format(time.RFC3339),
+		Reason:      enriched.Reason,
+	}, nil
+}
+
 func (s *AppointmentService) GetNextUpcomingAppointment(tenantID, patientID uuid.UUID) (*CalendarAppointment, error) {
 	return s.repo.GetNextUpcomingAppointment(tenantID, patientID)
 }
