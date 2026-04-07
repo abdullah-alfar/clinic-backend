@@ -27,6 +27,7 @@ import (
 	"clinic-backend/internal/reportai"
 	"clinic-backend/internal/scheduling"
 	"clinic-backend/internal/search"
+	"clinic-backend/internal/settings"
 	"clinic-backend/internal/tenant"
 	"clinic-backend/internal/timeline"
 	"clinic-backend/internal/upload"
@@ -104,6 +105,10 @@ func main() {
 	followupRepo := followup.NewPostgresRepository(database)
 	followupSvc := followup.NewService(followupRepo, notifDispatcher)
 	followupHandler := followup.NewHandler(followupSvc)
+
+	settingsRepo := settings.NewPostgresRepository(database)
+	settingsSvc := settings.NewService(settingsRepo)
+	settingsHandler := settings.NewHandler(settingsSvc)
 
 	// Start follow-up scheduler
 	followupScheduler := followup.NewScheduler(followupSvc, 1*time.Hour)
@@ -260,6 +265,13 @@ func main() {
 
 	// Smart Scheduling
 	mux.Handle("GET /api/v1/appointments/smart-suggestions", myhttp.AuthMiddleware(http.HandlerFunc(schedulingHandler.HandleSmartSuggestions)))
+
+	// Settings (System Control Panel)
+	mux.Handle("GET /api/v1/settings", myhttp.AuthMiddleware(http.HandlerFunc(settingsHandler.HandleGetSettings)))
+	mux.Handle("PUT /api/v1/settings", myhttp.AuthMiddleware(http.HandlerFunc(settingsHandler.HandleUpdateSettings)))
+	mux.Handle("POST /api/v1/settings/test-ai", myhttp.AuthMiddleware(http.HandlerFunc(settingsHandler.HandleTestAI)))
+	mux.Handle("POST /api/v1/settings/test-email", myhttp.AuthMiddleware(http.HandlerFunc(settingsHandler.HandleTestEmail)))
+	mux.Handle("POST /api/v1/settings/test-whatsapp", myhttp.AuthMiddleware(http.HandlerFunc(settingsHandler.HandleTestWhatsApp)))
 
 	// Follow-ups
 	mux.Handle("POST /api/v1/follow-ups", myhttp.AuthMiddleware(http.HandlerFunc(followupHandler.HandleCreate)))
