@@ -2,6 +2,7 @@ package ops_intelligence
 
 import (
 	"database/sql"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -125,7 +126,7 @@ func (r *postgresRepository) GetCommunications(tenantID uuid.UUID, patientID *uu
 		args = append(args, *patientID)
 	}
 
-	query += " ORDER BY created_at DESC LIMIT $" + string(rune(len(args)+1))
+	query += " ORDER BY created_at DESC LIMIT $" + strconv.Itoa(len(args)+1)
 	args = append(args, limit)
 
 	rows, err := r.db.Query(query, args...)

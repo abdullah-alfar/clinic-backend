@@ -2,6 +2,7 @@ package report
 
 import (
 	"database/sql"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -55,22 +56,22 @@ func (s *ReportService) GetAppointmentsReport(tenantID uuid.UUID, doctorID *uuid
 	idx := 2
 
 	if doctorID != nil {
-		query += ` AND doctor_id = $` + string(rune(idx+'0'))
+		query += ` AND doctor_id = $` + strconv.Itoa(idx)
 		args = append(args, *doctorID)
 		idx++
 	}
 	if status != "" {
-		query += ` AND status = $` + string(rune(idx+'0'))
+		query += ` AND status = $` + strconv.Itoa(idx)
 		args = append(args, status)
 		idx++
 	}
 	if dateFrom != nil {
-		query += ` AND start_time >= $` + string(rune(idx+'0'))
+		query += ` AND start_time >= $` + strconv.Itoa(idx)
 		args = append(args, *dateFrom)
 		idx++
 	}
 	if dateTo != nil {
-		query += ` AND end_time <= $` + string(rune(idx+'0'))
+		query += ` AND end_time <= $` + strconv.Itoa(idx)
 		args = append(args, *dateTo)
 		idx++
 	}
@@ -100,12 +101,12 @@ func (s *ReportService) GetPatientsReport(tenantID uuid.UUID, dateFrom, dateTo *
 	idx := 2
 
 	if dateFrom != nil {
-		query += ` AND created_at >= $` + string(rune(idx+'0'))
+		query += ` AND created_at >= $` + strconv.Itoa(idx)
 		args = append(args, *dateFrom)
 		idx++
 	}
 	if dateTo != nil {
-		query += ` AND created_at <= $` + string(rune(idx+'0'))
+		query += ` AND created_at <= $` + strconv.Itoa(idx)
 		args = append(args, *dateTo)
 		idx++
 	}
