@@ -12,6 +12,7 @@ import (
 	"clinic-backend/internal/availability"
 	"clinic-backend/internal/config"
 	"clinic-backend/internal/doctor"
+	"clinic-backend/internal/ai_core"
 	"clinic-backend/internal/doctor_dashboard"
 	"clinic-backend/internal/invoice"
 	"clinic-backend/internal/medical"
@@ -85,9 +86,6 @@ func main() {
 	apptSvc := appointment.NewAppointmentService(apptRepo, auditSvc, queueClient, notifDispatcher, advAvailSvc)
 	doctorSvc := doctor.NewDoctorService(database, auditSvc)
 
-	botRepo := whatsappbot.NewPostgresBotRepository(database)
-	botSvc := whatsappbot.NewBotService(botRepo, waSender, apptSvc, advAvailSvc, doctorSvc)
-
 	notifSvc := notification.NewNotificationService(database)
 	reportSvc := report.NewReportService(database)
 
@@ -139,6 +137,21 @@ func main() {
 	providerRegistry.Register(search.NewScheduleProvider(database))
 
 	searchSvc := search.NewSearchService(providerRegistry)
+
+	// AI Core System Tools
+	aiTools := ai_core.NewSystemTools()
+	aiTools.Register(ai_core.NewGetAvailableSlotsTool(schedulingSvc))
+	aiTools.Register(ai_core.NewSearchPatientsTool(searchSvc))
+	aiTools.Register(ai_core.NewCreateAppointmentTool(apptSvc))
+	aiTools.Register(ai_core.NewCancelAppointmentTool(apptSvc))
+
+	aiMemoryManager := ai_core.NewTransientMemory(30 * time.Minute)
+	aiCoreSvc := ai_core.NewAIService(aiTools, aiMemoryManager, settingsRepo)
+	aiCoreHandler := ai_core.NewAIHandler(aiCoreSvc)
+
+	// Bot depends on ai_core now
+	botRepo := whatsappbot.NewPostgresBotRepository(database)
+	botSvc := whatsappbot.NewBotService(botRepo, waSender, apptSvc, advAvailSvc, doctorSvc, aiCoreSvc)
 
 	// Handlers
 	authHandler := auth.NewAuthHandler(authSvc)
@@ -272,6 +285,9 @@ func main() {
 	mux.Handle("POST /api/v1/settings/test-ai", myhttp.AuthMiddleware(http.HandlerFunc(settingsHandler.HandleTestAI)))
 	mux.Handle("POST /api/v1/settings/test-email", myhttp.AuthMiddleware(http.HandlerFunc(settingsHandler.HandleTestEmail)))
 	mux.Handle("POST /api/v1/settings/test-whatsapp", myhttp.AuthMiddleware(http.HandlerFunc(settingsHandler.HandleTestWhatsApp)))
+
+	// AI Core
+	mux.Handle("POST /api/v1/ai/chat", myhttp.AuthMiddleware(http.HandlerFunc(aiCoreHandler.HandleChat)))
 
 	// Follow-ups
 	mux.Handle("POST /api/v1/follow-ups", myhttp.AuthMiddleware(http.HandlerFunc(followupHandler.HandleCreate)))

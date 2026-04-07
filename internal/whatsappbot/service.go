@@ -12,6 +12,7 @@ import (
 	"clinic-backend/internal/availability"
 	"clinic-backend/internal/doctor"
 	"clinic-backend/internal/whatsapp"
+	"clinic-backend/internal/ai_core"
 	"github.com/google/uuid"
 )
 
@@ -21,6 +22,7 @@ type BotService struct {
 	appointments *appointment.AppointmentService
 	availability *availability.AvailabilityService
 	doctors      *doctor.DoctorService
+	aiCore       ai_core.AIService
 }
 
 func NewBotService(
@@ -29,6 +31,7 @@ func NewBotService(
 	appts *appointment.AppointmentService,
 	avail *availability.AvailabilityService,
 	docs *doctor.DoctorService,
+	aiCore ai_core.AIService,
 ) *BotService {
 	return &BotService{
 		repo:         repo,
@@ -36,6 +39,7 @@ func NewBotService(
 		appointments: appts,
 		availability: avail,
 		doctors:      docs,
+		aiCore:       aiCore,
 	}
 }
 
@@ -68,23 +72,48 @@ func (s *BotService) ProcessInbound(ctx context.Context, tenantID uuid.UUID, msg
 	// 2. Log Inbound
 	_ = s.repo.LogMessage(ctx, tenantID, session.PatientID, phone, "inbound", "text", msg.Body, msg.ProviderMsgID)
 
-	// 3. Process Intent if we are at "start" of a flow OR a menu
-	intent := ParseIntent(msg.Body)
-	if session.CurrentFlow == "menu" || session.CurrentStep == "start" {
-		if intent != IntentUnknown && intent != IntentSelection && intent != IntentConfirmation {
-			session.CurrentFlow = intent
-			session.CurrentStep = "start"
-			session.State.Clear() // New flow, clear state
-			s.repo.UpsertSession(ctx, session)
-		}
+	// 3. Instead of simple intent parsed string matching, we pass this to ai_core
+	aiReq := ai_core.AIRequest{
+		SessionID: fmt.Sprintf("wa-%s-%s", tenantID.String(), phone),
+		TenantID:  tenantID,
+		PatientID: session.PatientID,
+		Input:     msg.Body,
+		Source:    "whatsapp",
+		Context: map[string]interface{}{
+			"current_flow": session.CurrentFlow,
+			"current_step": session.CurrentStep,
+		},
 	}
 
-	// 4. Handle Flow
-	reply := s.handleFlow(ctx, session, msg.Body)
+	aiResp, err := s.aiCore.Process(ctx, aiReq)
+	if err != nil {
+		// Fallback to legacy flow if AI fails or is disabled
+		intent := ParseIntent(msg.Body)
+		if session.CurrentFlow == "menu" || session.CurrentStep == "start" {
+			if intent != IntentUnknown && intent != IntentSelection && intent != IntentConfirmation {
+				session.CurrentFlow = intent
+				session.CurrentStep = "start"
+				session.State.Clear()
+				s.repo.UpsertSession(ctx, session)
+			}
+		}
+		reply := s.handleFlow(ctx, session, msg.Body)
+		if reply.Body != "" {
+			s.sendReply(ctx, session, reply)
+		}
+		return nil
+	}
 
-	// 5. Send Reply and Log
-	if reply.Body != "" {
-		s.sendReply(ctx, session, reply)
+	// 4. Act on AI Response
+	if aiResp.Message != "" {
+		s.sendReply(ctx, session, OutboundReply{Body: aiResp.Message})
+	}
+	
+	// If the AI took conclusive action ending a flow it might return Action: reset_flow
+	if aiResp.Action == "reset_flow" {
+		session.CurrentFlow = "menu"
+		session.CurrentStep = "start"
+		s.repo.UpsertSession(ctx, session)
 	}
 
 	return nil
