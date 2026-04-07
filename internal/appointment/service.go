@@ -274,6 +274,13 @@ func (s *AppointmentService) UpdateStatus(tenantID, apptID uuid.UUID, newStatus 
 		s.dispatchEvent(tenantID, apptID, appt.PatientID, appt.DoctorID, actorID, event, appt.StartTime)
 	}
 
+	// Auto-generation suggestion logic for Follow-ups
+	if newStatus == "completed" {
+		// In a production app, we would emit an event or return a flag
+		// for the frontend to show the "Create Follow-up" dialog.
+		// For now, we'll just log it or ensure the frontend can check status.
+	}
+
 	return nil
 }
 

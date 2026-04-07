@@ -31,9 +31,11 @@ import (
 	"clinic-backend/internal/timeline"
 	"clinic-backend/internal/upload"
 	"clinic-backend/internal/visit"
+	"clinic-backend/internal/followup"
 	"clinic-backend/internal/whatsapp"
 	"clinic-backend/internal/whatsappbot"
 	"github.com/joho/godotenv"
+	"time"
 )
 
 func main() {
@@ -98,6 +100,14 @@ func main() {
 
 	schedulingSvc := scheduling.NewSmartSchedulingService(advAvailSvc)
 	schedulingHandler := scheduling.NewSmartSchedulingHandler(schedulingSvc)
+
+	followupRepo := followup.NewPostgresRepository(database)
+	followupSvc := followup.NewService(followupRepo, notifDispatcher)
+	followupHandler := followup.NewHandler(followupSvc)
+
+	// Start follow-up scheduler
+	followupScheduler := followup.NewScheduler(followupSvc, 1*time.Hour)
+	followupScheduler.Start()
 
 	recurrenceRepo := recurrence.NewPostgresRecurrenceRepository(database)
 	recurrenceSvc := recurrence.NewRecurrenceService(recurrenceRepo, apptRepo, advAvailSvc)
@@ -250,6 +260,12 @@ func main() {
 
 	// Smart Scheduling
 	mux.Handle("GET /api/v1/appointments/smart-suggestions", myhttp.AuthMiddleware(http.HandlerFunc(schedulingHandler.HandleSmartSuggestions)))
+
+	// Follow-ups
+	mux.Handle("POST /api/v1/follow-ups", myhttp.AuthMiddleware(http.HandlerFunc(followupHandler.HandleCreate)))
+	mux.Handle("GET /api/v1/follow-ups", myhttp.AuthMiddleware(http.HandlerFunc(followupHandler.HandleList)))
+	mux.Handle("PATCH /api/v1/follow-ups/", myhttp.AuthMiddleware(http.HandlerFunc(followupHandler.HandleUpdateStatus))) // Note: path matching logic in handler
+	mux.Handle("GET /api/v1/patients/{id}/follow-ups", myhttp.AuthMiddleware(http.HandlerFunc(followupHandler.HandlePatientFollowUps)))
 
 	// Recurring Appointments
 	mux.Handle("POST /api/v1/appointments/recurring", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(recurrenceHandler.CreateRule))))
