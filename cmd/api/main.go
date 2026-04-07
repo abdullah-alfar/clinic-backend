@@ -215,6 +215,8 @@ func main() {
 	mux.Handle("POST /api/v1/patients", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(patientHandler.HandlePatients))))
 	mux.Handle("GET /api/v1/patients/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(patientHandler.HandlePatientByID))))
 	mux.Handle("GET /api/v1/patients/{id}/profile", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(ppHandler.GetProfile))))
+	mux.Handle("GET /api/v1/patients/{id}/activities", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(http.HandlerFunc(ppHandler.GetActivityStream))))
+
 	mux.Handle("PUT /api/v1/patients/{id}", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist")(http.HandlerFunc(patientHandler.HandleUpdatePatient))))
 	mux.Handle("DELETE /api/v1/patients/{id}",
 		myhttp.AuthMiddleware(

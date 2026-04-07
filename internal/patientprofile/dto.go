@@ -14,10 +14,25 @@ type PatientProfileResponse struct {
 }
 
 type PatientProfileData struct {
-	Patient        PatientDTO             `json:"patient"`
-	Summary        PatientSummary         `json:"summary"`
-	Flags          []PatientFlag          `json:"flags"`
-	RecentActivity PatientRecentActivity `json:"recent_activity"`
+	Patient   PatientDTO    `json:"patient"`
+	Flags     []PatientFlag   `json:"flags"`
+}
+
+type ActivityItemDTO struct {
+	ID        uuid.UUID `json:"id"`
+	Type      string    `json:"type"` // appointment, medical_record, invoice, communication
+	Title     string    `json:"title"`
+	Subtitle  string    `json:"subtitle"`
+	Status    string    `json:"status"`
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+type ActivityStreamResponse struct {
+	Data       []ActivityItemDTO `json:"data"`
+	TotalItems int               `json:"total_items"`
+	Page       int               `json:"page"`
+	Limit      int               `json:"limit"`
+	Message    string           `json:"message"`
 }
 
 type PatientDTO struct {
