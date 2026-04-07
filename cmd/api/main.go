@@ -36,6 +36,7 @@ import (
 	"clinic-backend/internal/followup"
 	"clinic-backend/internal/whatsapp"
 	"clinic-backend/internal/whatsappbot"
+	"clinic-backend/internal/ops_intelligence"
 	"github.com/joho/godotenv"
 	"time"
 )
@@ -186,6 +187,14 @@ func main() {
 	ppSvc := patientprofile.NewService(ppRepo)
 	ppHandler := patientprofile.NewHandler(ppSvc)
 
+	// Operational Intelligence
+	opsRepo := ops_intelligence.NewPostgresRepository(database)
+	opsPredictor := ops_intelligence.NewPredictor()
+	opsAnalyzer := ops_intelligence.NewAnalyzer()
+	opsInbox := ops_intelligence.NewInbox()
+	opsSvc := ops_intelligence.NewService(opsRepo, opsPredictor, opsAnalyzer, opsInbox)
+	opsHandler := ops_intelligence.NewHandler(opsSvc)
+
 	// Timeline Aggregation
 	timelineRepo := timeline.NewPostgresTimelineRepository(database)
 	timelineSvc := timeline.NewTimelineService(timelineRepo)
@@ -277,6 +286,11 @@ func main() {
 	mux.Handle("PATCH /api/v1/appointments/{id}/confirm", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(apptHandler.HandleStatus("confirmed"))))
 	mux.Handle("PATCH /api/v1/appointments/{id}/complete", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "doctor")(apptHandler.HandleStatus("completed"))))
 	mux.Handle("PATCH /api/v1/appointments/{id}/no-show", myhttp.AuthMiddleware(myhttp.RBACMiddleware("admin", "receptionist", "doctor")(apptHandler.HandleStatus("no_show"))))
+
+	// Operational Intelligence
+	mux.Handle("GET /api/v1/appointments/{id}/no-show-risk", myhttp.AuthMiddleware(http.HandlerFunc(opsHandler.HandleNoShowRisk)))
+	mux.Handle("GET /api/v1/revenue/missing", myhttp.AuthMiddleware(http.HandlerFunc(opsHandler.HandleMissingRevenue)))
+	mux.Handle("GET /api/v1/communications", myhttp.AuthMiddleware(http.HandlerFunc(opsHandler.HandleCommunications)))
 
 	// Smart Scheduling
 	mux.Handle("GET /api/v1/appointments/smart-suggestions", myhttp.AuthMiddleware(http.HandlerFunc(schedulingHandler.HandleSmartSuggestions)))
