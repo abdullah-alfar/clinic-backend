@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"clinic-backend/internal/ai_core"
 	"clinic-backend/internal/appointment"
 	"clinic-backend/internal/attachment"
 	"clinic-backend/internal/audit"
@@ -12,8 +13,8 @@ import (
 	"clinic-backend/internal/availability"
 	"clinic-backend/internal/config"
 	"clinic-backend/internal/doctor"
-	"clinic-backend/internal/ai_core"
 	"clinic-backend/internal/doctor_dashboard"
+	"clinic-backend/internal/followup"
 	"clinic-backend/internal/inventory"
 	"clinic-backend/internal/invoice"
 	"clinic-backend/internal/medical"
@@ -25,8 +26,8 @@ import (
 	myhttp "clinic-backend/internal/platform/http"
 	"clinic-backend/internal/procedurecatalog"
 	"clinic-backend/internal/queue"
-	"clinic-backend/internal/recurrence"
 	"clinic-backend/internal/rating"
+	"clinic-backend/internal/recurrence"
 	"clinic-backend/internal/report"
 	"clinic-backend/internal/reportai"
 	"clinic-backend/internal/scheduling"
@@ -36,7 +37,6 @@ import (
 	"clinic-backend/internal/timeline"
 	"clinic-backend/internal/upload"
 	"clinic-backend/internal/visit"
-	"clinic-backend/internal/followup"
 	"clinic-backend/internal/whatsapp"
 	"clinic-backend/internal/whatsappbot"
 	"github.com/joho/godotenv"
@@ -44,18 +44,20 @@ import (
 )
 
 func main() {
-	database, err := db.NewPostgresDB("localhost", "5432", "postgres", "root", "clinic")
-	if err != nil {
-		log.Printf("Warning: Failed to connect to DB: %v", err)
+	if err := godotenv.Load(); err != nil {
+		log.Println(".env file not loaded, using system environment")
 	}
+	_ = godotenv.Load()
+
+	database, err := db.NewDB()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer database.Close()
 
 	queueClient, err := queue.NewQueueClient("localhost:6379")
 	if err != nil {
 		log.Printf("Warning: Redis unavailable: %v", err)
-	}
-
-	if err := godotenv.Load(); err != nil {
-		log.Println(".env file not loaded, using system environment")
 	}
 
 	cfg, err := config.Load()

@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -40,12 +39,4 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-func getEnv(key, fallback string) string {
-	val := strings.TrimSpace(os.Getenv(key))
-	if val == "" {
-		return fallback
-	}
-	return val
 }

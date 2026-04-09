@@ -1,26 +1,32 @@
 package db
 
 import (
+	"clinic-backend/internal/config"
 	"database/sql"
 	"fmt"
-	"log"
-
 	_ "github.com/lib/pq"
 )
 
-func NewPostgresDB(host, port, user, password, dbname string) (*sql.DB, error) {
-	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		host, port, user, password, dbname)
+func NewDB() (*sql.DB, error) {
+	cfg := config.LoadDBConfig()
 
-	db, err := sql.Open("postgres", connStr)
+	dsn := cfg.DSN()
+	if dsn == "" {
+		return nil, fmt.Errorf("unsupported DB_CONNECTION: %s", cfg.Connection)
+	}
+
+	db, err := sql.Open(cfg.Connection, dsn)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = db.Ping(); err != nil {
+	db.SetMaxOpenConns(cfg.MaxOpenConns)
+	db.SetMaxIdleConns(cfg.MaxIdleConns)
+	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+
+	if err := db.Ping(); err != nil {
 		return nil, err
 	}
 
-	log.Println("Connected to PostgreSQL successfully")
 	return db, nil
 }
