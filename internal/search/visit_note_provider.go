@@ -45,7 +45,8 @@ func (p *visitNoteProvider) Search(ctx context.Context, tenantID uuid.UUID, quer
 		      v.diagnosis ILIKE $2 OR 
 		      v.prescription ILIKE $2 OR
 		      pt.first_name ILIKE $2 OR 
-		      pt.last_name ILIKE $2
+		      pt.last_name ILIKE $2 OR
+		      (pt.first_name || ' ' || pt.last_name) ILIKE $2
 		  )
 		ORDER BY v.created_at DESC
 		LIMIT $3

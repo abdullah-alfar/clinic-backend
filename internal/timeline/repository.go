@@ -2,6 +2,7 @@ package timeline
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +15,7 @@ type TimelineRepository interface {
 	GetPatientNotifications(tenantID, patientID uuid.UUID) ([]TimelineItem, error)
 	GetPatientAttachments(tenantID, patientID uuid.UUID) ([]TimelineItem, error)
 	GetPatientVisits(tenantID, patientID uuid.UUID) ([]TimelineItem, error)
+	GetPatientDocuments(tenantID, patientID uuid.UUID) ([]TimelineItem, error)
 }
 
 type postgresTimelineRepository struct {
@@ -300,6 +302,54 @@ func (r *postgresTimelineRepository) GetPatientVisits(tenantID, patientID uuid.U
 			EntityURL:   "/visits/" + id.String(),
 			Metadata: map[string]any{
 				"doctor_name": doctorName,
+			},
+		})
+	}
+	return items, nil
+}
+
+func (r *postgresTimelineRepository) GetPatientDocuments(tenantID, patientID uuid.UUID) ([]TimelineItem, error) {
+	query := `
+		SELECT id, tenant_id, patient_id, name, category, created_at
+		FROM documents
+		WHERE tenant_id = $1 AND patient_id = $2
+		ORDER BY created_at DESC
+	`
+	rows, err := r.db.Query(query, tenantID, patientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []TimelineItem
+	for rows.Next() {
+		var id, tID, pID uuid.UUID
+		var name, category string
+		var createdAt time.Time
+
+		if err := rows.Scan(&id, &tID, &pID, &name, &category, &createdAt); err != nil {
+			return nil, err
+		}
+
+		title := "Document Added"
+		if category != "" {
+			title = "Document Added: " + strings.ReplaceAll(category, "_", " ")
+		}
+
+		items = append(items, TimelineItem{
+			ID:          id,
+			TenantID:    tID,
+			PatientID:   pID,
+			Type:        TypeDocument,
+			Title:       title,
+			Subtitle:    name,
+			Description: "Scientific categorization: " + category,
+			OccurredAt:  createdAt,
+			EntityID:    id,
+			EntityURL:   "/documents/" + id.String(),
+			Metadata: map[string]any{
+				"document_name": name,
+				"category":      category,
 			},
 		})
 	}

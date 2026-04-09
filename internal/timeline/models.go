@@ -16,6 +16,7 @@ const (
 	TypeNote           TimelineItemType = "note"
 	TypeNotification   TimelineItemType = "notification"
 	TypeAttachment     TimelineItemType = "attachment"
+	TypeDocument       TimelineItemType = "document"
 )
 
 type TimelineItem struct {

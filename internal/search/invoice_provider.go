@@ -41,6 +41,7 @@ func (p *invoiceProvider) Search(ctx context.Context, tenantID uuid.UUID, query 
 		      i.status ILIKE $2 OR 
 		      pt.first_name ILIKE $2 OR 
 		      pt.last_name ILIKE $2 OR
+		      (pt.first_name || ' ' || pt.last_name) ILIKE $2 OR
 			  CAST(i.amount AS TEXT) ILIKE $2
 		  )
 		ORDER BY i.created_at DESC

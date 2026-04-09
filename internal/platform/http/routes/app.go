@@ -7,6 +7,7 @@ import (
 	"clinic-backend/internal/appointment"
 	"clinic-backend/internal/attachment"
 	"clinic-backend/internal/auth"
+	"clinic-backend/internal/document"
 	"clinic-backend/internal/availability"
 	"clinic-backend/internal/doctor"
 	"clinic-backend/internal/doctor_dashboard"
@@ -62,6 +63,7 @@ type Handlers struct {
 	RecurrenceHandler   *recurrence.RecurrenceHandler
 	InventoryHandler    *inventory.Handler
 	ProcedureHandler    *procedurecatalog.Handler
+	DocumentHandler     *document.DocumentHandler
 }
 
 func RegisterAll(mux *http.ServeMux, h Handlers) {
@@ -73,4 +75,5 @@ func RegisterAll(mux *http.ServeMux, h Handlers) {
 	registerFollowupUploadRoutes(mux, h)
 	registerNotificationAttachmentRoutes(mux, h)
 	registerBusinessRoutes(mux, h)
+	registerDocumentRoutes(mux, h)
 }

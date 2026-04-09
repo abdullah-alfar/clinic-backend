@@ -34,6 +34,7 @@ func (p *patientProvider) Search(ctx context.Context, tenantID uuid.UUID, query 
 		  AND (
 		      first_name ILIKE $2 OR 
 		      last_name ILIKE $2 OR 
+		      (first_name || ' ' || last_name) ILIKE $2 OR
 		      phone ILIKE $2 OR 
 		      email ILIKE $2
 		  )

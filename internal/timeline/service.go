@@ -24,6 +24,7 @@ func (s *TimelineService) GetPatientTimeline(tenantID, patientID uuid.UUID, filt
 	fetchNotifications := filterType == "" || filterType == string(TypeNotification)
 	fetchAttachments := filterType == "" || filterType == string(TypeAttachment)
 	fetchNotes := filterType == "" || filterType == string(TypeNote)
+	fetchDocs := filterType == "" || filterType == string(TypeDocument)
 
 	if fetchAppts {
 		items, err := s.repo.GetPatientAppointments(tenantID, patientID)
@@ -62,6 +63,13 @@ func (s *TimelineService) GetPatientTimeline(tenantID, patientID uuid.UUID, filt
 
 	if fetchNotes {
 		items, err := s.repo.GetPatientVisits(tenantID, patientID)
+		if err == nil {
+			allItems = append(allItems, items...)
+		}
+	}
+
+	if fetchDocs {
+		items, err := s.repo.GetPatientDocuments(tenantID, patientID)
 		if err == nil {
 			allItems = append(allItems, items...)
 		}

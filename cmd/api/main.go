@@ -14,6 +14,7 @@ import (
 	"clinic-backend/internal/config"
 	"clinic-backend/internal/doctor"
 	"clinic-backend/internal/doctor_dashboard"
+	"clinic-backend/internal/document"
 	"clinic-backend/internal/followup"
 	"clinic-backend/internal/inventory"
 	"clinic-backend/internal/invoice"
@@ -134,6 +135,10 @@ func main() {
 	attStorage := attachment.NewLocalFileStorage("./uploads")
 	attSvc := attachment.NewAttachmentService(attRepo, attStorage, auditSvc)
 
+	docRepo := document.NewPostgresRepository(database)
+	docSvc := document.NewDocumentService(docRepo, attStorage, auditSvc)
+	docHandler := document.NewDocumentHandler(docSvc)
+
 	aiRepo := reportai.NewPostgresRepository(database)
 	aiProvider := reportai.NewMockAIProvider()
 	aiSvc := reportai.NewReportAIService(aiRepo, aiProvider, auditSvc)
@@ -244,6 +249,7 @@ func main() {
 		RecurrenceHandler:   recurrenceHandler,
 		InventoryHandler:    inventoryHandler,
 		ProcedureHandler:    procHandler,
+		DocumentHandler:     docHandler,
 	})
 	fmt.Println("Starting Clinic SaaS Phase 3 API on :8080")
 	if err := http.ListenAndServe(":8080", myhttp.CORSMiddleware(mux)); err != nil {

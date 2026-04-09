@@ -46,6 +46,7 @@ func (p *appointmentProvider) Search(ctx context.Context, tenantID uuid.UUID, qu
 		      a.reason ILIKE $2 OR 
 		      p.first_name ILIKE $2 OR 
 		      p.last_name ILIKE $2 OR 
+		      (p.first_name || ' ' || p.last_name) ILIKE $2 OR
 		      d.full_name ILIKE $2 OR 
 			  a.notes ILIKE $2
 		  )
