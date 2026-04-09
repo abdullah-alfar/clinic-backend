@@ -15,7 +15,7 @@ import (
 // Error codes returned:
 //   - MISSING_TOKEN   — no Authorization header or not a Bearer token.
 //   - TOKEN_EXPIRED   — valid signature but past ExpiresAt; frontend should
-//                       attempt a silent refresh or redirect to login.
+//     attempt a silent refresh or redirect to login.
 //   - INVALID_TOKEN   — structurally bad, tampered, or wrong signing key.
 //
 // Only INVALID_TOKEN is a potential security event worth logging.
