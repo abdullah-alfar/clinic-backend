@@ -5,99 +5,111 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-
-	"github.com/google/uuid"
+	"time"
 )
 
-type visitNoteProvider struct {
-	db *sql.DB
-}
+type visitNoteProvider struct{ db *sql.DB }
 
-func NewVisitNoteProvider(db *sql.DB) SearchProvider {
-	return &visitNoteProvider{db: db}
-}
+// NewVisitNoteProvider creates a SearchProvider that searches visit records and clinical notes.
+func NewVisitNoteProvider(db *sql.DB) SearchProvider { return &visitNoteProvider{db: db} }
 
-func (p *visitNoteProvider) GetEntityType() EntityType {
-	return EntityNote
-}
+func (p *visitNoteProvider) Type() EntityType { return EntityNote }
+func (p *visitNoteProvider) Label() string    { return "Medical Notes" }
 
-func (p *visitNoteProvider) GetEntityLabel() string {
-	return "Medical Notes"
-}
+func (p *visitNoteProvider) Search(ctx context.Context, req SearchRequest) ([]SearchResultItem, error) {
+	pattern := "%" + req.Query + "%"
 
-func (p *visitNoteProvider) Search(ctx context.Context, tenantID uuid.UUID, query string, limit int) ([]SearchResultItem, error) {
-	searchPattern := fmt.Sprintf("%%%s%%", query)
+	args := []any{req.TenantID, pattern}
+	extra := ""
 
-	q := `
-		SELECT 
-			v.id, 
-			v.notes, 
-			v.diagnosis, 
-			v.prescription, 
-			pt.first_name, 
+	if req.PatientID != nil {
+		args = append(args, *req.PatientID)
+		extra += fmt.Sprintf(" AND v.patient_id = $%d", len(args))
+	}
+	if req.DoctorID != nil {
+		args = append(args, *req.DoctorID)
+		extra += fmt.Sprintf(" AND v.doctor_id = $%d", len(args))
+	}
+	if req.DateFrom != nil {
+		args = append(args, *req.DateFrom)
+		extra += fmt.Sprintf(" AND v.created_at >= $%d", len(args))
+	}
+	if req.DateTo != nil {
+		args = append(args, *req.DateTo)
+		extra += fmt.Sprintf(" AND v.created_at <= $%d", len(args))
+	}
+
+	args = append(args, req.Limit)
+	limitIdx := len(args)
+
+	q := fmt.Sprintf(`
+		SELECT
+			v.id,
+			v.notes,
+			v.diagnosis,
+			v.prescription,
+			pt.first_name,
 			pt.last_name,
+			v.patient_id,
 			v.created_at
 		FROM visits v
 		JOIN patients pt ON v.patient_id = pt.id
-		WHERE v.tenant_id = $1 
+		WHERE v.tenant_id = $1
 		  AND (
-		      v.notes ILIKE $2 OR 
-		      v.diagnosis ILIKE $2 OR 
-		      v.prescription ILIKE $2 OR
-		      pt.first_name ILIKE $2 OR 
-		      pt.last_name ILIKE $2 OR
-		      (pt.first_name || ' ' || pt.last_name) ILIKE $2
-		  )
+		        v.notes        ILIKE $2 OR
+		        v.diagnosis    ILIKE $2 OR
+		        v.prescription ILIKE $2 OR
+		        pt.first_name  ILIKE $2 OR
+		        pt.last_name   ILIKE $2 OR
+		        (pt.first_name || ' ' || pt.last_name) ILIKE $2
+		      )
+		%s
 		ORDER BY v.created_at DESC
-		LIMIT $3
-	`
+		LIMIT $%d
+	`, extra, limitIdx)
 
-	rows, err := p.db.QueryContext(ctx, q, tenantID, searchPattern, limit)
+	rows, err := p.db.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("visit notes: %w", err)
 	}
 	defer rows.Close()
 
 	var results []SearchResultItem
 	for rows.Next() {
-		var id string
+		var id, pFName, pLName, patientID string
 		var notes, diagnosis, prescription sql.NullString
-		var pFName, pLName string
-		var createdAt interface{}
-		if err := rows.Scan(&id, &notes, &diagnosis, &prescription, &pFName, &pLName, &createdAt); err != nil {
-			return nil, err
+		var createdAt time.Time
+
+		if err := rows.Scan(&id, &notes, &diagnosis, &prescription, &pFName, &pLName, &patientID, &createdAt); err != nil {
+			return nil, fmt.Errorf("visit notes scan: %w", err)
 		}
 
-		// Pick the most relevant title/subtitle
-		title := "Visit for " + pFName + " " + pLName
-		var contents []string
+		var parts []string
 		if diagnosis.Valid && diagnosis.String != "" {
-			contents = append(contents, "Dx: "+diagnosis.String)
+			parts = append(parts, "Dx: "+diagnosis.String)
 		}
 		if prescription.Valid && prescription.String != "" {
-			contents = append(contents, "Rx: "+prescription.String)
+			parts = append(parts, "Rx: "+prescription.String)
 		}
-		
-		subtitle := strings.Join(contents, " • ")
-		if subtitle == "" && notes.Valid {
+		subtitle := strings.Join(parts, " • ")
+		if subtitle == "" && notes.Valid && notes.String != "" {
 			subtitle = notes.String
-			if len(subtitle) > 50 {
-				subtitle = subtitle[:47] + "..."
+			if len(subtitle) > 80 {
+				subtitle = subtitle[:77] + "..."
 			}
 		}
 
 		results = append(results, SearchResultItem{
 			ID:          id,
-			Title:       title,
+			Title:       "Visit for " + pFName + " " + pLName,
 			Subtitle:    subtitle,
 			Description: "Visit Record",
-			URL:         fmt.Sprintf("/patients/%s?tab=timeline", id), // or logic to view specific visit
-			Score:       0,
+			URL:         fmt.Sprintf("/patients/%s?tab=timeline", patientID),
 			Metadata: map[string]any{
 				"has_prescription": prescription.Valid && prescription.String != "",
+				"created_at":       createdAt,
 			},
 		})
 	}
-
-	return results, nil
+	return results, rows.Err()
 }

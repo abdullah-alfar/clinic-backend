@@ -156,11 +156,15 @@ func (t *SearchPatientsTool) Execute(ctx context.Context, tenantID uuid.UUID, pa
 		return "", err
 	}
 
-	searchData, err := t.searchSvc.GlobalSearch(ctx, tenantID, in.Query, []string{"patient"})
+	searchData, err := t.searchSvc.GlobalSearch(ctx, search.SearchRequest{
+		TenantID: tenantID,
+		Query:    in.Query,
+		Types:    []string{"patients"},
+	})
 	if err != nil {
 		return fmt.Sprintf("Search error: %v", err), nil
 	}
-	
+
 	if len(searchData.Groups) == 0 || len(searchData.Groups[0].Results) == 0 {
 		return "No matching patients found.", nil
 	}
