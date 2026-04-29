@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"clinic-backend/internal/ai_agent"
 	"clinic-backend/internal/ai_core"
 	"clinic-backend/internal/appointment"
 	"clinic-backend/internal/attachment"
@@ -168,6 +169,19 @@ func main() {
 	aiCoreSvc := ai_core.NewAIService(aiTools, aiMemoryManager, settingsRepo)
 	aiCoreHandler := ai_core.NewAIHandler(aiCoreSvc)
 
+	// AI Agent
+	agentTools := ai_agent.NewSystemTools()
+	agentTools.Register(ai_agent.NewGlobalSearchTool(searchSvc))
+	agentTools.Register(ai_agent.NewGetDoctorAvailabilityTool(advAvailSvc))
+	agentTools.Register(ai_agent.NewCreatePatientTool(patientSvc))
+	agentTools.Register(ai_agent.NewBookAppointmentTool(apptSvc))
+	
+	agentMemory := ai_agent.NewTransientMemory(30 * time.Minute)
+	agentConfirmStore := ai_agent.NewInMemoryStore(15 * time.Minute)
+	agentSvc := ai_agent.NewAgentService(agentTools, agentMemory, settingsRepo, agentConfirmStore)
+	agentHandler := ai_agent.NewAgentHandler(agentSvc)
+
+
 	// Bot depends on ai_core now
 	botRepo := whatsappbot.NewPostgresBotRepository(database)
 	botSvc := whatsappbot.NewBotService(botRepo, waSender, apptSvc, advAvailSvc, doctorSvc, aiCoreSvc)
@@ -245,6 +259,7 @@ func main() {
 		SchedulingHandler:   schedulingHandler,
 		SettingsHandler:     settingsHandler,
 		AIHandler:           aiCoreHandler,
+		AIAgentHandler:      agentHandler,
 		FollowupHandler:     followupHandler,
 		RecurrenceHandler:   recurrenceHandler,
 		InventoryHandler:    inventoryHandler,

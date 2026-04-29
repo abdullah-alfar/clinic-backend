@@ -3,6 +3,7 @@ package routes
 import (
 	"net/http"
 
+	"clinic-backend/internal/ai_agent"
 	"clinic-backend/internal/ai_core"
 	"clinic-backend/internal/appointment"
 	"clinic-backend/internal/attachment"
@@ -59,6 +60,7 @@ type Handlers struct {
 	SchedulingHandler   *scheduling.SmartSchedulingHandler
 	SettingsHandler     *settings.Handler
 	AIHandler           *ai_core.AIHandler
+	AIAgentHandler      *ai_agent.AgentHandler
 	FollowupHandler     *followup.Handler
 	RecurrenceHandler   *recurrence.RecurrenceHandler
 	InventoryHandler    *inventory.Handler

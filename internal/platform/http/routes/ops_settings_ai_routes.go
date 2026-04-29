@@ -27,4 +27,8 @@ func registerOpsAndSettingsRoutes(mux *http.ServeMux, h Handlers) {
 
 	// AI Core
 	api.Handle("POST", "/ai/chat", http.HandlerFunc(h.AIHandler.HandleChat))
+
+	// AI Agent
+	api.Handle("POST", "/ai-agent/chat", http.HandlerFunc(h.AIAgentHandler.HandleChat))
+	api.Handle("POST", "/ai-agent/confirm", http.HandlerFunc(h.AIAgentHandler.HandleConfirm))
 }
